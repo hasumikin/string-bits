@@ -328,7 +328,21 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     int have_block = rb_block_given_p();
 
-    VALUE ary = have_block ? Qnil : rb_ary_new();
+    VALUE ary;
+    if (have_block) {
+        ary = Qnil;
+    }
+    else {
+        /* Pre-size the Array with popcount to avoid repeated reallocation. */
+        long count = 0;
+        long nw = len >> 3;
+        const uint64_t *wp = (const uint64_t *)str;
+        for (long wi = 0; wi < nw; wi++)
+            count += sb_popcount64(wp[wi]);
+        for (long bi = nw << 3; bi < len; bi++)
+            count += sb_popcount64((uint64_t)str[bi]);
+        ary = rb_ary_new_capa(count);
+    }
 
     if (!msb_first) {
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
