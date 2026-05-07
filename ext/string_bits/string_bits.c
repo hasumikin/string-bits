@@ -41,6 +41,46 @@ sb_popcount64(uint64_t x)
 #endif
 }
 
+/* ctz / clz helpers for set-bit iteration ---------------------------------- */
+
+static inline int
+sb_ctz8(unsigned int x)
+{
+    /* position of lowest set bit; x must be non-zero */
+#if __has_builtin(__builtin_ctz)
+    return __builtin_ctz(x);
+#elif defined(_MSC_VER)
+    unsigned long index;
+    _BitScanForward(&index, x);
+    return (int)index;
+#else
+    int n = 0;
+    if (!(x & 0x0F)) { n += 4; x >>= 4; }
+    if (!(x & 0x03)) { n += 2; x >>= 2; }
+    if (!(x & 0x01))   n += 1;
+    return n;
+#endif
+}
+
+static inline int
+sb_highest_bit8(unsigned int x)
+{
+    /* position of highest set bit; x must be non-zero */
+#if __has_builtin(__builtin_clz)
+    return 31 - __builtin_clz(x);
+#elif defined(_MSC_VER)
+    unsigned long index;
+    _BitScanReverse(&index, x);
+    return (int)index;
+#else
+    int n = 0;
+    if (x >= 16) { n += 4; x >>= 4; }
+    if (x >= 4)  { n += 2; x >>= 2; }
+    if (x >= 2)    n += 1;
+    return n;
+#endif
+}
+
 /* common functions --------------------------------------------------------- */
 
 static inline int
@@ -207,17 +247,28 @@ rb_str_each_set_bit(int argc, VALUE *argv, VALUE self)
 
     int msb_first = parse_order(argc, argv);
     long len = RSTRING_LEN(self);
-    const char *str = RSTRING_PTR(self);
-    long total_bits = len * 8;
+    const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
-    if (msb_first) {
-        for (long i = total_bits - 1; i >= 0; i--) {
-            if (get_bit(str, i, 0)) rb_yield(LONG2FIX(i));
+    if (!msb_first) {
+        /* LSB-first: ascending positions 0, 1, 2, ... */
+        for (long bi = 0; bi < len; bi++) {
+            unsigned int b = str[bi];
+            while (b != 0) {
+                int bit = sb_ctz8(b);
+                rb_yield(LONG2FIX(bi * 8 + bit));
+                b &= b - 1;  /* clear lowest set bit (Kernighan's trick) */
+            }
         }
     }
     else {
-        for (long i = 0; i < total_bits; i++) {
-            if (get_bit(str, i, 0)) rb_yield(LONG2FIX(i));
+        /* MSB-first: descending positions (total-1), ..., 1, 0 */
+        for (long bi = len - 1; bi >= 0; bi--) {
+            unsigned int b = str[bi];
+            while (b != 0) {
+                int bit = sb_highest_bit8(b);
+                rb_yield(LONG2FIX(bi * 8 + bit));
+                b ^= (1u << bit);  /* clear highest set bit */
+            }
         }
     }
 
@@ -229,25 +280,30 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
 {
     int msb_first = parse_order(argc, argv);
     long len = RSTRING_LEN(self);
-    const char *str = RSTRING_PTR(self);
-    long total_bits = len * 8;
+    const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     int have_block = rb_block_given_p();
 
     VALUE ary = have_block ? Qnil : rb_ary_new();
 
-    if (msb_first) {
-        for (long i = total_bits - 1; i >= 0; i--) {
-            if (get_bit(str, i, 0)) {
-                VALUE pos = LONG2FIX(i);
+    if (!msb_first) {
+        for (long bi = 0; bi < len; bi++) {
+            unsigned int b = str[bi];
+            while (b != 0) {
+                int bit = sb_ctz8(b);
+                VALUE pos = LONG2FIX(bi * 8 + bit);
                 have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
+                b &= b - 1;
             }
         }
     }
     else {
-        for (long i = 0; i < total_bits; i++) {
-            if (get_bit(str, i, 0)) {
-                VALUE pos = LONG2FIX(i);
+        for (long bi = len - 1; bi >= 0; bi--) {
+            unsigned int b = str[bi];
+            while (b != 0) {
+                int bit = sb_highest_bit8(b);
+                VALUE pos = LONG2FIX(bi * 8 + bit);
                 have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
+                b ^= (1u << bit);
             }
         }
     }
@@ -274,7 +330,8 @@ rb_str_bit_slice(VALUE self, VALUE bit_offset, VALUE bit_length)
 
     if (offset < 0 || length < 0) return Qnil;
 
-    long total_bits = RSTRING_LEN(self) * 8;
+    long src_len = RSTRING_LEN(self);
+    long total_bits = src_len * 8;
     if (offset > total_bits) return Qnil;
 
     long available = total_bits - offset;
@@ -285,14 +342,27 @@ rb_str_bit_slice(VALUE self, VALUE bit_offset, VALUE bit_length)
     VALUE result = rb_str_buf_new(out_bytes);
     rb_str_resize(result, out_bytes);
     rb_enc_associate(result, rb_enc_get(self));
-    char *dst = RSTRING_PTR(result);
-    memset(dst, 0, out_bytes);
+    unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
 
-    const char *src = RSTRING_PTR(self);
-    for (long i = 0; i < length; i++) {
-        if (get_bit(src, offset + i, 0)) {
-            dst[i / 8] |= (unsigned char)(1 << (i % 8));
+    const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+    long byte_off = offset >> 3;
+    int shift = (int)(offset & 7);
+
+    if (shift == 0) {
+        memcpy(dst, src + byte_off, out_bytes);
+    }
+    else {
+        int anti_shift = 8 - shift;
+        for (long i = 0; i < out_bytes; i++) {
+            unsigned char lo = src[byte_off + i];
+            unsigned char hi = (byte_off + i + 1 < src_len) ? src[byte_off + i + 1] : 0;
+            dst[i] = (unsigned char)((lo >> shift) | (hi << anti_shift));
         }
+    }
+
+    int tail_bits = (int)(length & 7);
+    if (tail_bits) {
+        dst[out_bytes - 1] &= (unsigned char)((1u << tail_bits) - 1);
     }
 
     return result;
