@@ -6,6 +6,13 @@
 module BenchmarkRunner
   LIB_PATH = File.expand_path("../lib", __dir__)
 
+  def self.system_info
+    info = IO.popen(["uname", "-srm"], err: IO::NULL, &:read).strip
+    info.empty? ? RUBY_PLATFORM : info
+  rescue
+    RUBY_PLATFORM
+  end
+
   def self.yjit_available?
     IO.popen([RbConfig.ruby, "--yjit", "-e", "exit 0"], err: IO::NULL, &:read)
     $?.success?
@@ -32,7 +39,7 @@ module BenchmarkRunner
 
     puts title
     puts "#{description} | #{iterations} iterations"
-    puts "Ruby #{RUBY_VERSION} | YJIT: #{yjit_ok ? "available" : "not available"}"
+    puts "Ruby #{RUBY_VERSION} | YJIT: #{yjit_ok ? "available" : "not available"} | #{system_info}"
     puts
 
     results = {}
