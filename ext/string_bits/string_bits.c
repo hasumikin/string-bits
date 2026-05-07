@@ -4,11 +4,11 @@
 /* popcount ----------------------------------------------------------------- */
 /*
  * Porting to Ruby Core:
- *   1. Remove sb_popcount32/sb_popcount64 and the #include block below.
- *      Use rb_popcount32/rb_popcount64 from internal/bits.h instead.
+ *   1. Remove sb_popcount64 and the #include block below.
+ *      Use rb_popcount64 from internal/bits.h instead.
  *   2. Add #include "internal/bits.h" at the top of string.c (or wherever
  *      String#popcount is implemented).
- *   3. Replace all sb_popcount32/sb_popcount64 calls with rb_popcount32/rb_popcount64.
+ *   3. Replace all sb_popcount64 calls with rb_popcount64.
  *   4. Move rb_str_popcount into string.c and register it in Init_String().
  */
 
@@ -17,23 +17,6 @@
 #elif defined(_MSC_VER)
 #  include <intrin.h>
 #endif
-
-static inline unsigned int
-sb_popcount32(uint32_t x)
-{
-#if defined(_MSC_VER) && defined(__AVX__)
-    return (unsigned int)__popcnt(x);
-#elif __has_builtin(__builtin_popcount)
-    return (unsigned int)__builtin_popcount(x);
-#else
-    x = (x & 0x55555555) + (x >> 1 & 0x55555555);
-    x = (x & 0x33333333) + (x >> 2 & 0x33333333);
-    x = (x & 0x07070707) + (x >> 4 & 0x07070707);
-    x = (x & 0x000f000f) + (x >> 8 & 0x000f000f);
-    x = (x & 0x0000001f) + (x >>16 & 0x0000001f);
-    return (unsigned int)x;
-#endif
-}
 
 static inline unsigned int
 sb_popcount64(uint64_t x)
