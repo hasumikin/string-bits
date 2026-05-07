@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 # frozen_string_literal: true
 #
 # Benchmark: Jaccard similarity between two large bitmaps

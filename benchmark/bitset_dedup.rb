@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 # frozen_string_literal: true
 #
 # Benchmark: streaming deduplication with a bitset

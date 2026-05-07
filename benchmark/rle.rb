@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 # frozen_string_literal: true
 #
 # Benchmark: run-length encoding of a bitstream
