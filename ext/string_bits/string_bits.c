@@ -81,6 +81,28 @@ sb_highest_bit8(unsigned int x)
 #endif
 }
 
+static inline int
+sb_ctzll(uint64_t x)
+{
+    /* position of lowest set bit in a non-zero 64-bit word */
+#if __has_builtin(__builtin_ctzll)
+    return __builtin_ctzll(x);
+#elif defined(_MSC_VER)
+    unsigned long index;
+    _BitScanForward64(&index, x);
+    return (int)index;
+#else
+    int n = 0;
+    if (!(x & 0x00000000FFFFFFFFull)) { n += 32; x >>= 32; }
+    if (!(x & 0x0000FFFFull))         { n += 16; x >>= 16; }
+    if (!(x & 0x00FFull))             { n +=  8; x >>=  8; }
+    if (!(x & 0x0Full))               { n +=  4; x >>=  4; }
+    if (!(x & 0x03ull))               { n +=  2; x >>=  2; }
+    if (!(x & 0x01ull))                 n +=  1;
+    return n;
+#endif
+}
+
 /* common functions --------------------------------------------------------- */
 
 static inline int
@@ -250,15 +272,38 @@ rb_str_each_set_bit(int argc, VALUE *argv, VALUE self)
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
     if (!msb_first) {
-        /* LSB-first: ascending positions 0, 1, 2, ... */
+        /* LSB-first: ascending positions 0, 1, 2, ...
+         * On little-endian, loading 8 bytes as uint64_t preserves the flat
+         * LSB-first bit numbering: word bit 0 == position 0, bit 63 == 63. */
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        long n_words = len >> 3;
+        const uint64_t *words = (const uint64_t *)str;
+        for (long wi = 0; wi < n_words; wi++) {
+            uint64_t w = words[wi];
+            while (w != 0) {
+                int bit = sb_ctzll(w);
+                rb_yield(LONG2FIX(wi * 64 + bit));
+                w &= w - 1;
+            }
+        }
+        for (long bi = n_words << 3; bi < len; bi++) {
+            unsigned int b = str[bi];
+            while (b != 0) {
+                int bit = sb_ctz8(b);
+                rb_yield(LONG2FIX(bi * 8 + bit));
+                b &= b - 1;
+            }
+        }
+#else
         for (long bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
             while (b != 0) {
                 int bit = sb_ctz8(b);
                 rb_yield(LONG2FIX(bi * 8 + bit));
-                b &= b - 1;  /* clear lowest set bit (Kernighan's trick) */
+                b &= b - 1;
             }
         }
+#endif
     }
     else {
         /* MSB-first: descending positions (total-1), ..., 1, 0 */
@@ -286,6 +331,28 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
     VALUE ary = have_block ? Qnil : rb_ary_new();
 
     if (!msb_first) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        long n_words = len >> 3;
+        const uint64_t *words = (const uint64_t *)str;
+        for (long wi = 0; wi < n_words; wi++) {
+            uint64_t w = words[wi];
+            while (w != 0) {
+                int bit = sb_ctzll(w);
+                VALUE pos = LONG2FIX(wi * 64 + bit);
+                have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
+                w &= w - 1;
+            }
+        }
+        for (long bi = n_words << 3; bi < len; bi++) {
+            unsigned int b = str[bi];
+            while (b != 0) {
+                int bit = sb_ctz8(b);
+                VALUE pos = LONG2FIX(bi * 8 + bit);
+                have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
+                b &= b - 1;
+            }
+        }
+#else
         for (long bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
             while (b != 0) {
@@ -295,6 +362,7 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
                 b &= b - 1;
             }
         }
+#endif
     }
     else {
         for (long bi = len - 1; bi >= 0; bi--) {
