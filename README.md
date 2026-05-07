@@ -156,6 +156,22 @@ glyph.each_bit(order: :msb).each_slice(width) do |row|
 end
 ```
 
+### Performance
+
+Benchmark: count lit pixels per glyph using `bit_slice` + `each_set_bit(order: :lsb)` vs. a Pure Ruby shift-and-mask loop. 256-glyph × 8×16px font, 2000 unique text strings per iteration, 100 iterations, Ruby 4.0.3.
+
+|                 | YJIT off | YJIT on |
+|-----------------|----------|---------|
+| Pure Ruby       | 1606 ms  |  221 ms |
+| string-bits gem |  596 ms  |  492 ms |
+| Speedup (gem)   |   2.7x   |   0.4x  |
+
+**Without YJIT** (mruby, PicoRuby, and MRI with YJIT disabled), the gem is **2.7x faster**. `bit_slice` extracts the glyph in one C call and `each_set_bit` uses `__builtin_ctz` to skip zero bits, avoiding the per-column shift-and-mask loop entirely.
+
+**With YJIT**, Pure Ruby is **2.3x faster** than the gem. YJIT compiles the tight integer loop (`(byte >> col) & 1`) very aggressively, while the `rb_yield` callback at the Ruby-C boundary cannot be optimized across that boundary. Since the primary targets of this gem — mruby and PicoRuby — do not have YJIT, this tradeoff is by design.
+
+For YJIT-enabled MRI where throughput matters more than readability, Pure Ruby is the better choice for this pattern.
+
 ### Memory efficiency
 
 Packed binary storage is already possible in Ruby today — the 8x reduction over character strings is not new. What is missing is ergonomic access. Without bit-level methods, reading a single pixel requires the shift-and-mask idiom shown above, and building a bitmap incrementally requires hand-written byte arithmetic. The friction is high enough that tools often choose the simpler `"0"`/`"1"` character format instead, paying the memory cost to avoid the code complexity.
@@ -196,6 +212,35 @@ Arrow validity bitmap for 10 elements (byte[0] = 0b11111111, byte[1] = 0b0000001
 ```
 
 `bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit(order: :lsb)` yields valid element indices in ascending order.
+
+### Performance with Red Arrow
+
+[Red Arrow](https://github.com/apache/arrow/tree/main/ruby/red-arrow) is the standard Ruby binding for Apache Arrow. Its `each` method yields every element (including nulls) through a GObject introspection bridge — one Ruby callback per element regardless of null density. `each_set_bit(order: :lsb)` sidesteps this by iterating only the valid indices, calling into the Arrow column only for non-null values.
+
+Benchmark: 100K-row `Arrow::Int32Array`, sum all valid values, 5 iterations, Ruby 4.0.3.
+
+| null rate | Red Arrow `each` | string-bits | Speedup |
+|-----------|-----------------|-------------|---------|
+| 10%       | 3397 ms         | 3144 ms     | 1.1x    |
+| 50%       | 3220 ms         | 1712 ms     | 1.9x    |
+| 90%       | 2615 ms         |  387 ms     | 6.8x    |
+
+The speedup tracks `1 / (1 - null_rate)`: at 50% null the gem skips half the GObject calls; at 90% null it skips 90% of them. The bottleneck in both cases is the per-element bridge overhead, so the gain is proportional to how many elements are skipped.
+
+**Pattern used in the benchmark:**
+
+```ruby
+# One-time setup: build validity bitmap from source data (amortized cost).
+# With Arrow::Array#null_bitmap this would become a zero-copy read;
+# that method is not yet part of the Red Arrow public API.
+bitmap = ("\x00" * ((n + 7) / 8)).b
+source_data.each_with_index { |v, i| bitmap.set_bit(i) if v }
+
+# Repeated iteration (timed):
+bitmap.each_set_bit(order: :lsb) { |i| process(arrow_col[i]) }
+```
+
+This pattern pays off when the same column is iterated more than once — the bitmap construction cost is amortized over subsequent passes. For a single scan, Red Arrow's `each` is simpler and the overhead difference is small at low null rates.
 
 ### Arrow IPC serialization
 
@@ -251,6 +296,75 @@ The String methods proposed here cover the common case where a column buffer has
 
 * `IO::Buffer`: memory ownership, zero-copy slicing, I/O operations
 * `String` (proposed): bit-level iteration and manipulation of materialized byte data
+
+---
+
+## Use Cases and Design Considerations
+
+The methods in this proposal share a single flat bit-numbering scheme: position N lives in
+`byte[N/8]` at bit `N % 8` counted from the LSB (LSB = 0 within each byte). This convention
+is a natural fit for array-indexed structures, but it conflicts with some domain conventions.
+The following table summarises known use cases and their alignment with the current design.
+
+### Bit ordering across domains
+
+| domain | native bit ordering | compatibility with current design |
+|--------|---------------------|------------------------------------|
+| Apache Arrow validity bitmap | LSB-first (element i = byte[i/8] bit i%8) | native |
+| ARM / STM32 hardware registers | bit 0 = LSB (ARM Architecture Reference Manual) | native |
+| BLE advertising PDU (air transmission order) | LSB-first | native |
+| IEEE 802.15.4 / Zigbee | LSB-first | native |
+| PostgreSQL visibility map, ext4 block bitmap | LSB-first | native |
+| Roaring Bitmap (analytics databases) | LSB-first | native |
+| PicoRuby / mruby bitmap font | MSB = leftmost pixel; LSB numbering within each byte | `order: :msb` traversal covers the render direction |
+| RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | position offset conversion needed: `7 - (n % 8) + (n / 8) * 8` |
+| BitTorrent bitfield message | piece 0 = MSB of byte 0 | same offset conversion as RFC |
+| PNG 1/2/4-bit scanlines | MSB = leftmost pixel | same offset conversion as RFC |
+| Huffman / LZ compressed bit streams | MSB written first into each byte | same offset conversion as RFC |
+
+Domains using LSB-first numbering represent the majority of high-performance in-process
+workloads (columnar analytics, embedded hardware, filesystem bitmaps). Domains using
+MSB-first numbering (RFC headers, BitTorrent, PNG sub-byte images) are real but tend to
+appear in Ruby code that already uses `unpack` with format strings and integer bit shifts,
+where a flat-bitmap API is less directly useful.
+
+For the MSB-first domains, the relationship between their document-level bit index d and the
+flat position n used by this API is `n = 7 - (d % 8) + (d / 8) * 8`. This is mechanical but
+not obvious; if any of these domains become primary use cases, the naming and default
+choices should be revisited.
+
+### The `order:` default
+
+The current default for `order:` is `:msb`. Both directions are defensible.
+
+**Case for `:msb` as default:** Binary data is conventionally displayed with the most
+significant bit on the left. `each_bit(order: :msb)` over a single byte produces digits in
+the familiar left-to-right order. Bitmap font rendering yields pixels left-to-right naturally
+without an explicit keyword argument.
+
+**Case for `:lsb` as default:** The majority of identified use cases require ascending
+iteration (Arrow, hardware registers, PostgreSQL bitmaps, Roaring Bitmaps, graph traversals).
+These callers must write `order: :lsb` explicitly even though ascending iteration is the
+common programming idiom. Positions returned by `set_bit_positions(order: :lsb)` are
+immediately usable as array indices without any transformation. If Arrow is treated as the
+primary production workload, making `:lsb` the default would reduce friction for the most
+common path.
+
+There is no universally correct answer. The default affects every caller that omits `order:`,
+and changing it after adoption would be a breaking change. The open question is which omission
+is more surprising: ascending iteration or MSB-first display?
+
+### Packed integer fields
+
+Several domains store small fixed-width integers in adjacent bit fields: 4-bit nibbles in
+packed audio or sensor data, 3-bit or 5-bit fields in network headers, variable-width codes
+in compression streams. The current API handles extraction via `bit_slice(offset, width)`
+followed by a manual conversion to integer, but there is no single-call method.
+
+A future `read_uint(bit_offset, bit_length) -> Integer` could address this. Its specification
+would need to commit to a byte order for multi-byte fields (little-endian vs big-endian within
+the extracted field), making it more complex than the methods in this proposal. This is noted
+as a potential direction rather than a current commitment.
 
 ---
 
