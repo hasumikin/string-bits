@@ -1,0 +1,13 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  QUERY        = Random.bytes(32)
+  FINGERPRINTS = Array.new(10_000) { Random.bytes(32) }
+
+benchmark:
+  baseline: |
+    FINGERPRINTS.min_by { |fp|
+      fp.bytes.zip(QUERY.bytes).sum { |x, y| (x ^ y).to_s(2).count("1") }
+    }
+  string_bits: FINGERPRINTS.min_by { |fp| QUERY.bit_xor(fp).popcount }

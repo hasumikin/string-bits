@@ -1,0 +1,23 @@
+# Requires: red-arrow gem and Apache Arrow C++ libraries.
+# See https://arrow.apache.org/install/ and `gem install red-arrow`.
+# Skipped automatically by `rake benchmark` if red-arrow is not available.
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'arrow'
+  require 'string_bits'
+  srand(42)
+  N    = 100_000
+  data = Array.new(N) { rand < 0.5 ? nil : rand(1000) }
+  COL  = Arrow::Int32Array.new(data)
+  BITMAP = (0.chr * ((N + 7) / 8)).b
+  data.each_with_index { |v, i| BITMAP.set_bit(i) if v }
+
+benchmark:
+  baseline: |
+    sum = 0
+    COL.each { |v| sum += v if v }
+    sum
+  string_bits: |
+    sum = 0
+    BITMAP.each_set_bit(order: :lsb) { |i| sum += COL[i] }
+    sum

@@ -1,0 +1,8 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  DATA = Random.bytes(1_000_000)
+
+benchmark:
+  baseline: DATA.bytes.sum { |b| b.to_s(2).count("1") }
+  string_bits: DATA.popcount

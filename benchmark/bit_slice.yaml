@@ -1,0 +1,24 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  DATA        = Random.bytes(100_000)
+  WINDOW_BITS = 64
+  BYTES_OUT   = 8
+  OFFSETS     = Array.new(10_000) { |i| i * 37 }
+
+benchmark:
+  baseline: |
+    OFFSETS.each do |offset|
+      byte_start = offset >> 3
+      shift      = offset & 7
+      anti_shift = 8 - shift
+      result     = (0.chr * BYTES_OUT).b
+      BYTES_OUT.times do |i|
+        lo = DATA.getbyte(byte_start + i) || 0
+        hi = DATA.getbyte(byte_start + i + 1) || 0
+        result.setbyte(i, ((lo >> shift) | (hi << anti_shift)) & 0xFF)
+      end
+    end
+  string_bits: |
+    OFFSETS.each { |off| DATA.bit_slice(off, WINDOW_BITS) }

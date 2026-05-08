@@ -1,0 +1,18 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  A = Random.bytes(125_000)
+  B = Random.bytes(125_000)
+
+benchmark:
+  baseline: |
+    intersection = 0
+    union_count  = 0
+    A.each_byte.with_index do |a_byte, i|
+      b_byte = B.getbyte(i)
+      intersection += (a_byte & b_byte).to_s(2).count("1")
+      union_count  += (a_byte | b_byte).to_s(2).count("1")
+    end
+    intersection.to_f / union_count
+  string_bits: A.bit_and(B).popcount.to_f / A.bit_or(B).popcount

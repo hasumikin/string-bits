@@ -1,0 +1,21 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  ID_RANGE     = 2_000_000
+  BITMAP_BYTES = ID_RANGE / 8
+  ITEMS        = Array.new(1_000_000) { rand(ID_RANGE) }
+
+benchmark:
+  baseline: |
+    bitmap = (0.chr * BITMAP_BYTES).b
+    ITEMS.each do |id|
+      byte_idx = id >> 3
+      bit_mask = 1 << (id & 7)
+      bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) | bit_mask)
+    end
+    bitmap.each_byte.sum { |b| b.to_s(2).count("1") }
+  string_bits: |
+    bitmap = (0.chr * BITMAP_BYTES).b
+    ITEMS.each { |id| bitmap.set_bit(id) }
+    bitmap.popcount

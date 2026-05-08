@@ -1,0 +1,36 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  DATA = Random.bytes(100_000)
+
+benchmark:
+  baseline: |
+    runs = []; current = nil; count = 0
+    DATA.each_byte do |byte|
+      8.times do |bit|
+        b = (byte >> bit) & 1 == 1
+        if b == current
+          count += 1
+        else
+          runs << [current, count] unless current.nil?
+          current = b
+          count   = 1
+        end
+      end
+    end
+    runs << [current, count] unless current.nil?
+    runs
+  string_bits: |
+    runs = []; current = nil; count = 0
+    DATA.each_bit(order: :lsb) do |b|
+      if b == current
+        count += 1
+      else
+        runs << [current, count] unless current.nil?
+        current = b
+        count   = 1
+      end
+    end
+    runs << [current, count] unless current.nil?
+    runs

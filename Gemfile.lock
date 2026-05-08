@@ -6,6 +6,10 @@ PATH
 GEM
   remote: https://rubygems.org/
   specs:
+    benchmark (0.5.0)
+    benchmark-driver (0.1.0)
+      benchmark_driver
+    benchmark_driver (0.17.0)
     drb (2.2.3)
     minitest (6.0.6)
       drb (~> 2.0)
@@ -20,11 +24,16 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
+  benchmark
+  benchmark-driver
   minitest
   rake-compiler
   string-bits!
 
 CHECKSUMS
+  benchmark (0.5.0) sha256=465df122341aedcb81a2a24b4d3bd19b6c67c1530713fd533f3ff034e419236c
+  benchmark-driver (0.1.0) sha256=77ec99a203ba8a303e424ea73ff53dac6dace98720aae3172a8d47a45bbfd64c
+  benchmark_driver (0.17.0) sha256=381ff431222bf616869a2a67f6dfb97a1ff2694291a7e313a7387fcc5ec3df58
   drb (2.2.3) sha256=0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85

@@ -1,0 +1,33 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  GLYPH_W     = 8
+  GLYPH_H     = 16
+  GLYPH_BITS  = 128
+  SCREEN_W    = 16_000
+  FONT        = Random.bytes(4096)
+  FRAMEBUFFER = (0.chr * (SCREEN_W * GLYPH_H)).b
+  TEXT        = Random.bytes(2_000)
+
+benchmark:
+  baseline: |
+    TEXT.each_byte.with_index do |code, char_idx|
+      x_base = char_idx * GLYPH_W
+      base   = code * GLYPH_H
+      GLYPH_H.times do |row|
+        byte    = FONT.getbyte(base + row)
+        row_off = row * SCREEN_W + x_base
+        GLYPH_W.times do |col|
+          FRAMEBUFFER.setbyte(row_off + col, 1) if (byte >> col) & 1 == 1
+        end
+      end
+    end
+  string_bits: |
+    TEXT.each_byte.with_index do |code, char_idx|
+      x_base = char_idx * GLYPH_W
+      glyph  = FONT.bit_slice(code * GLYPH_BITS, GLYPH_BITS)
+      glyph.each_set_bit(order: :lsb) do |n|
+        FRAMEBUFFER.setbyte(n / GLYPH_W * SCREEN_W + x_base + n % GLYPH_W, 1)
+      end
+    end

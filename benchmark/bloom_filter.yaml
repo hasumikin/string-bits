@@ -1,0 +1,38 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  M_BITS       = 1_000_000
+  SEEDS        = [0x9e3779b9, 0x517cc1b7, 0x6c622730].freeze
+  ELEMENTS     = Array.new(100_000) { rand(2**32) }
+  QUERIES      = Array.new(100_000) { rand(2**32) }
+  BITMAP_BYTES = M_BITS / 8
+
+  def bloom_pos(item)
+    SEEDS.map { |seed| (item * seed) % M_BITS }
+  end
+
+benchmark:
+  baseline: |
+    bitmap = "\x00".b * BITMAP_BYTES
+    ELEMENTS.each do |item|
+      bloom_pos(item).each do |pos|
+        byte_idx = pos >> 3
+        bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) | (1 << (pos & 7)))
+      end
+    end
+    hits = 0
+    QUERIES.each do |item|
+      hits += 1 if bloom_pos(item).all? { |pos|
+        (bitmap.getbyte(pos >> 3) >> (pos & 7)) & 1 == 1
+      }
+    end
+    hits
+  string_bits: |
+    bitmap = "\x00".b * BITMAP_BYTES
+    ELEMENTS.each { |item| bloom_pos(item).each { |pos| bitmap.set_bit(pos) } }
+    hits = 0
+    QUERIES.each do |item|
+      hits += 1 if bloom_pos(item).all? { |pos| bitmap.bit_at(pos) }
+    end
+    hits
