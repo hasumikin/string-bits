@@ -130,27 +130,23 @@ class TestSetClearFlipBit < Minitest::Test
     assert_raises(TypeError) { s.flip_bit(:foo) }
   end
 
-  def test_set_bit_bignum_within_long_range_raises_index_error
+  def test_set_bit_bignum_raises_index_error
+    # Any positive Bignum maps to LONG_MAX via integer_to_bit_idx -> always out of range.
+    # RangeError is never raised regardless of sizeof(long) (LP64 vs LLP64/Windows).
     assert_raises(IndexError) { (+"\xFF").set_bit(2**62) }
+    assert_raises(IndexError) { (+"\xFF").set_bit(2**63) }
+    assert_raises(IndexError) { (+"\xFF").set_bit(2**100) }
   end
 
-  def test_clear_bit_bignum_within_long_range_raises_index_error
+  def test_clear_bit_bignum_raises_index_error
     assert_raises(IndexError) { (+"\xFF").clear_bit(2**62) }
+    assert_raises(IndexError) { (+"\xFF").clear_bit(2**63) }
+    assert_raises(IndexError) { (+"\xFF").clear_bit(2**100) }
   end
 
-  def test_flip_bit_bignum_within_long_range_raises_index_error
+  def test_flip_bit_bignum_raises_index_error
     assert_raises(IndexError) { (+"\xFF").flip_bit(2**62) }
-  end
-
-  def test_set_bit_bignum_exceeding_long_range_raises_range_error
-    assert_raises(RangeError) { (+"\xFF").set_bit(2**63) }
-  end
-
-  def test_clear_bit_bignum_exceeding_long_range_raises_range_error
-    assert_raises(RangeError) { (+"\xFF").clear_bit(2**63) }
-  end
-
-  def test_flip_bit_bignum_exceeding_long_range_raises_range_error
-    assert_raises(RangeError) { (+"\xFF").flip_bit(2**63) }
+    assert_raises(IndexError) { (+"\xFF").flip_bit(2**63) }
+    assert_raises(IndexError) { (+"\xFF").flip_bit(2**100) }
   end
 end

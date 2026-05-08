@@ -67,12 +67,17 @@ class TestBitAt < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_at(-8) }
   end
 
-  def test_bignum_within_long_range_returns_nil
-    # 2**62 is a Bignum on 64-bit MRI (just above Fixnum max); fits in long but far out of range
+  def test_bignum_returns_nil
+    # Any positive Bignum exceeds every real string's bit count -> nil on all platforms.
+    # integer_to_bit_idx maps positive Bignums to LONG_MAX without calling NUM2LONG,
+    # so sizeof(long) differences (LP64 vs LLP64/Windows) do not affect behaviour.
     assert_nil "\xFF".bit_at(2**62)
+    assert_nil "\xFF".bit_at(2**63)
+    assert_nil "\xFF".bit_at(2**100)
   end
 
-  def test_bignum_exceeding_long_range_raises_range_error
-    assert_raises(RangeError) { "\xFF".bit_at(2**63) }
+  def test_negative_bignum_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_at(-(2**62)) }
+    assert_raises(ArgumentError) { "\xFF".bit_at(-(2**100)) }
   end
 end

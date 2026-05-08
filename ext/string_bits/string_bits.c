@@ -119,16 +119,38 @@ test_bit(const char *ptr, long bit_index)
     return get_bit(ptr, bit_index, 0);
 }
 
+/* Convert a Ruby Integer to a long bit index without calling NUM2LONG on Bignums.
+ *
+ * NUM2LONG raises a platform-dependent RangeError: on Windows (LLP64) sizeof(long)==4
+ * so any Bignum > INT32_MAX raises, while on Linux/macOS (LP64) sizeof(long)==8 so
+ * Bignums up to INT64_MAX succeed. This inconsistency breaks cross-platform tests.
+ *
+ * Instead, map Bignums to sentinel longs that let the caller's existing range/sign
+ * checks handle them uniformly on every platform:
+ *   Fixnum          -> FIX2LONG(n)   (normal fast path)
+ *   negative Bignum -> -1L           (non-negative guard will fire)
+ *   positive Bignum -> LONG_MAX      (always out of range for any real string)
+ *
+ * RBIGNUM_NEGATIVE_P is available via ruby.h -> ruby/internal/core/rbignum.h. */
+static long
+integer_to_bit_idx(VALUE n)
+{
+    if (FIXNUM_P(n)) return FIX2LONG(n);
+    RUBY_ASSERT(RB_TYPE_P(n, T_BIGNUM));
+    if (RBIGNUM_NEGATIVE_P(n)) return -1L;
+    return LONG_MAX;
+}
+
 static long
 check_bit_index(VALUE self, VALUE n)
 {
     if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
     }
-    long idx = NUM2LONG(n);
+    long idx = integer_to_bit_idx(n);
     long size = RSTRING_LEN(self) * 8;
     if (idx < 0 || idx >= size) {
-        rb_raise(rb_eIndexError, "bit index %ld out of range for %ld-bit string", idx, size);
+        rb_raise(rb_eIndexError, "bit index out of range");
     }
     return idx;
 }
@@ -166,7 +188,7 @@ rb_str_bit_at(VALUE self, VALUE n)
     if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
     }
-    long idx = NUM2LONG(n);
+    long idx = integer_to_bit_idx(n);
     if (idx < 0) {
         rb_raise(rb_eArgError, "bit index must be non-negative");
     }
