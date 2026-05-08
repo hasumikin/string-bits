@@ -9,5 +9,10 @@ prelude: |
 
 benchmark:
   baseline: |
-    DATA.map { |v| v }
+    result = Array.new(N)
+    BITMAP.each_byte.with_index do |byte, bi|
+      base = bi * 8
+      8.times { |bit| result[base + bit] = VALUES[base + bit] if byte[bit] == 1 }
+    end
+    result
   string_bits: "VALUES.bitmask(BITMAP, order: :lsb)"

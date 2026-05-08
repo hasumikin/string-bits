@@ -2,9 +2,10 @@ prelude: |
   $LOAD_PATH.unshift File.expand_path('lib')
   require 'string_bits'
   srand(42)
-  ID_RANGE     = 2_000_000
-  BITMAP_BYTES = ID_RANGE / 8
-  ITEMS        = Array.new(1_000_000) { rand(ID_RANGE) }
+  ID_RANGE       = 2_000_000
+  BITMAP_BYTES   = ID_RANGE / 8
+  ITEMS          = Array.new(1_000_000) { rand(ID_RANGE) }
+  POPCOUNT_TABLE = Array.new(256) { |i| i.to_s(2).count("1") }.freeze
 
 benchmark:
   baseline: |
@@ -14,7 +15,7 @@ benchmark:
       bit_mask = 1 << (id & 7)
       bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) | bit_mask)
     end
-    bitmap.each_byte.sum { |b| b.to_s(2).count("1") }
+    bitmap.each_byte.sum { |b| POPCOUNT_TABLE[b] }
   string_bits: |
     bitmap = (0.chr * BITMAP_BYTES).b
     ITEMS.each { |id| bitmap.set_bit(id) }

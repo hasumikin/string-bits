@@ -4,6 +4,7 @@ prelude: |
   srand(42)
   A = Random.bytes(125_000)
   B = Random.bytes(125_000)
+  POPCOUNT_TABLE = Array.new(256) { |i| i.to_s(2).count("1") }.freeze
 
 benchmark:
   baseline: |
@@ -11,8 +12,8 @@ benchmark:
     union_count  = 0
     A.each_byte.with_index do |a_byte, i|
       b_byte = B.getbyte(i)
-      intersection += (a_byte & b_byte).to_s(2).count("1")
-      union_count  += (a_byte | b_byte).to_s(2).count("1")
+      intersection += POPCOUNT_TABLE[a_byte & b_byte]
+      union_count  += POPCOUNT_TABLE[a_byte | b_byte]
     end
     intersection.to_f / union_count
   string_bits: A.bit_and(B).popcount.to_f / A.bit_or(B).popcount

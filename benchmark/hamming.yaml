@@ -2,12 +2,16 @@ prelude: |
   $LOAD_PATH.unshift File.expand_path('lib')
   require 'string_bits'
   srand(42)
-  QUERY        = Random.bytes(32)
-  FINGERPRINTS = Array.new(10_000) { Random.bytes(32) }
+  QUERY          = Random.bytes(32)
+  FINGERPRINTS   = Array.new(10_000) { Random.bytes(32) }
+  FP_LEN         = QUERY.bytesize
+  POPCOUNT_TABLE = Array.new(256) { |i| i.to_s(2).count("1") }.freeze
 
 benchmark:
   baseline: |
     FINGERPRINTS.min_by { |fp|
-      fp.bytes.zip(QUERY.bytes).sum { |x, y| (x ^ y).to_s(2).count("1") }
+      dist = 0
+      FP_LEN.times { |i| dist += POPCOUNT_TABLE[fp.getbyte(i) ^ QUERY.getbyte(i)] }
+      dist
     }
   string_bits: FINGERPRINTS.min_by { |fp| QUERY.bit_xor(fp).popcount }
