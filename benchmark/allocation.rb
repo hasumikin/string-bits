@@ -136,4 +136,23 @@ measure("gem:       each_bit { block }") {
   runs
 }
 
+# --- Array#bitmask ---
+section "Array#bitmask (100K elements, ~50% masked)"
+bm_values = Array.new(100_000) { rand(1000) }
+bm_bitmap = Random.bytes((100_000 + 7) / 8)
+measure("Pure Ruby: each_byte + byte[bit] loop") {
+  result = Array.new(100_000)
+  bm_bitmap.each_byte.with_index do |byte, bi|
+    base = bi * 8
+    8.times { |bit| result[base + bit] = bm_values[base + bit] if byte[bit] == 1 }
+  end
+  result
+}
+measure("gem:       bitmask  (returns new Array)") {
+  bm_values.bitmask(bm_bitmap, order: :lsb)
+}
+measure("gem:       bitmask! (in-place, needs dup)") {
+  bm_values.dup.bitmask!(bm_bitmap, order: :lsb)
+}
+
 puts
