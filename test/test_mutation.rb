@@ -105,4 +105,52 @@ class TestSetClearFlipBit < Minitest::Test
     assert_equal true,  bitmap.bit_at(4)
     assert_equal 3, bitmap.popcount
   end
+
+  def test_set_bit_non_integer_raises_type_error
+    s = +"\xFF"
+    assert_raises(TypeError) { s.set_bit("0") }
+    assert_raises(TypeError) { s.set_bit(0.5) }
+    assert_raises(TypeError) { s.set_bit(nil) }
+    assert_raises(TypeError) { s.set_bit(:foo) }
+  end
+
+  def test_clear_bit_non_integer_raises_type_error
+    s = +"\xFF"
+    assert_raises(TypeError) { s.clear_bit("0") }
+    assert_raises(TypeError) { s.clear_bit(0.5) }
+    assert_raises(TypeError) { s.clear_bit(nil) }
+    assert_raises(TypeError) { s.clear_bit(:foo) }
+  end
+
+  def test_flip_bit_non_integer_raises_type_error
+    s = +"\xFF"
+    assert_raises(TypeError) { s.flip_bit("0") }
+    assert_raises(TypeError) { s.flip_bit(0.5) }
+    assert_raises(TypeError) { s.flip_bit(nil) }
+    assert_raises(TypeError) { s.flip_bit(:foo) }
+  end
+
+  def test_set_bit_bignum_within_long_range_raises_index_error
+    assert_raises(IndexError) { (+"\xFF").set_bit(2**62) }
+  end
+
+  def test_clear_bit_bignum_within_long_range_raises_index_error
+    assert_raises(IndexError) { (+"\xFF").clear_bit(2**62) }
+  end
+
+  def test_flip_bit_bignum_within_long_range_raises_index_error
+    assert_raises(IndexError) { (+"\xFF").flip_bit(2**62) }
+  end
+
+  def test_set_bit_bignum_exceeding_long_range_raises_range_error
+    assert_raises(RangeError) { (+"\xFF").set_bit(2**63) }
+  end
+
+  def test_clear_bit_bignum_exceeding_long_range_raises_range_error
+    assert_raises(RangeError) { (+"\xFF").clear_bit(2**63) }
+  end
+
+  def test_flip_bit_bignum_exceeding_long_range_raises_range_error
+    assert_raises(RangeError) { (+"\xFF").flip_bit(2**63) }
+  end
 end

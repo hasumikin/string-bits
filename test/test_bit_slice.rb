@@ -70,4 +70,28 @@ class TestBitSlice < Minitest::Test
   def test_empty_string_offset_zero_returns_empty
     assert_equal "", "".bit_slice(0, 0)
   end
+
+  def test_non_integer_offset_returns_nil
+    assert_nil "\xFF".bit_slice("0", 4)
+    assert_nil "\xFF".bit_slice(0.5, 4)
+    assert_nil "\xFF".bit_slice(nil, 4)
+    assert_nil "\xFF".bit_slice(:foo, 4)
+  end
+
+  def test_non_integer_length_returns_nil
+    assert_nil "\xFF".bit_slice(0, "4")
+    assert_nil "\xFF".bit_slice(0, 0.5)
+    assert_nil "\xFF".bit_slice(0, nil)
+    assert_nil "\xFF".bit_slice(0, :foo)
+  end
+
+  def test_bignum_offset_returns_nil
+    assert_nil "\xFF".bit_slice(2**62, 4)
+    assert_nil "\xFF".bit_slice(2**63, 4)
+  end
+
+  def test_bignum_length_returns_nil
+    assert_nil "\xFF".bit_slice(0, 2**62)
+    assert_nil "\xFF".bit_slice(0, 2**63)
+  end
 end

@@ -122,10 +122,10 @@ test_bit(const char *ptr, long bit_index)
 static long
 check_bit_index(VALUE self, VALUE n)
 {
-    if (!RB_TYPE_P(n, T_FIXNUM)) {
+    if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
     }
-    long idx = FIX2LONG(n);
+    long idx = NUM2LONG(n);
     long size = RSTRING_LEN(self) * 8;
     if (idx < 0 || idx >= size) {
         rb_raise(rb_eIndexError, "bit index %ld out of range for %ld-bit string", idx, size);
@@ -163,15 +163,14 @@ parse_order(int argc, VALUE *argv)
 static VALUE
 rb_str_bit_at(VALUE self, VALUE n)
 {
-    long idx, size;
-    if (!RB_TYPE_P(n, T_FIXNUM)) {
+    if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
     }
-    idx = FIX2LONG(n);
+    long idx = NUM2LONG(n);
     if (idx < 0) {
         rb_raise(rb_eArgError, "bit index must be non-negative");
     }
-    size = RSTRING_LEN(self) * 8;
+    long size = RSTRING_LEN(self) * 8;
     if (size <= idx) {
         return Qnil;
     }
@@ -403,7 +402,11 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_bit_slice(VALUE self, VALUE bit_offset, VALUE bit_length)
 {
-    if (!RB_TYPE_P(bit_offset, T_FIXNUM) || !RB_TYPE_P(bit_length, T_FIXNUM)) {
+    if (!rb_integer_type_p(bit_offset) || !rb_integer_type_p(bit_length)) {
+        return Qnil;
+    }
+    /* Bignum values exceed any practical string length, treat as out-of-range */
+    if (!RB_FIXNUM_P(bit_offset) || !RB_FIXNUM_P(bit_length)) {
         return Qnil;
     }
 

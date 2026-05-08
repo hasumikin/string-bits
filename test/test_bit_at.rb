@@ -53,4 +53,26 @@ class TestBitAt < Minitest::Test
   def test_all_ones
     "\xFF".tap { |s| 8.times { |n| assert_equal true, s.bit_at(n) } }
   end
+
+  def test_non_integer_raises_type_error
+    s = "\xFF"
+    assert_raises(TypeError) { s.bit_at("0") }
+    assert_raises(TypeError) { s.bit_at(0.5) }
+    assert_raises(TypeError) { s.bit_at(nil) }
+    assert_raises(TypeError) { s.bit_at(:foo) }
+  end
+
+  def test_negative_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_at(-1) }
+    assert_raises(ArgumentError) { "\xFF".bit_at(-8) }
+  end
+
+  def test_bignum_within_long_range_returns_nil
+    # 2**62 is a Bignum on 64-bit MRI (just above Fixnum max); fits in long but far out of range
+    assert_nil "\xFF".bit_at(2**62)
+  end
+
+  def test_bignum_exceeding_long_range_raises_range_error
+    assert_raises(RangeError) { "\xFF".bit_at(2**63) }
+  end
 end
