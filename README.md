@@ -156,22 +156,6 @@ glyph.each_bit(order: :msb).each_slice(width) do |row|
 end
 ```
 
-### Performance
-
-Benchmark: count lit pixels per glyph using `bit_slice` + `each_set_bit(order: :lsb)` vs. a Pure Ruby shift-and-mask loop. 256-glyph × 8×16px font, 2000 unique text strings per iteration, 100 iterations, Ruby 4.0.3.
-
-|                 | YJIT off | YJIT on |
-|-----------------|----------|---------|
-| Pure Ruby       | 1606 ms  |  221 ms |
-| string-bits gem |  596 ms  |  492 ms |
-| Speedup (gem)   |   2.7x   |   0.4x  |
-
-**Without YJIT** (mruby, PicoRuby, and MRI with YJIT disabled), the gem is **2.7x faster**. `bit_slice` extracts the glyph in one C call and `each_set_bit` uses `__builtin_ctz` to skip zero bits, avoiding the per-column shift-and-mask loop entirely.
-
-**With YJIT**, Pure Ruby is **2.3x faster** than the gem. YJIT compiles the tight integer loop (`(byte >> col) & 1`) very aggressively, while the `rb_yield` callback at the Ruby-C boundary cannot be optimized across that boundary. Since the primary targets of this gem — mruby and PicoRuby — do not have YJIT, this tradeoff is by design.
-
-For YJIT-enabled MRI where throughput matters more than readability, Pure Ruby is the better choice for this pattern.
-
 ### Memory efficiency
 
 Packed binary storage is already possible in Ruby today — the 8x reduction over character strings is not new. What is missing is ergonomic access. Without bit-level methods, reading a single pixel requires the shift-and-mask idiom shown above, and building a bitmap incrementally requires hand-written byte arithmetic. The friction is high enough that tools often choose the simpler `"0"`/`"1"` character format instead, paying the memory cost to avoid the code complexity.
@@ -212,35 +196,6 @@ Arrow validity bitmap for 10 elements (byte[0] = 0b11111111, byte[1] = 0b0000001
 ```
 
 `bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit(order: :lsb)` yields valid element indices in ascending order.
-
-### Performance with Red Arrow
-
-[Red Arrow](https://github.com/apache/arrow/tree/main/ruby/red-arrow) is the standard Ruby binding for Apache Arrow. Its `each` method yields every element (including nulls) through a GObject introspection bridge — one Ruby callback per element regardless of null density. `each_set_bit(order: :lsb)` sidesteps this by iterating only the valid indices, calling into the Arrow column only for non-null values.
-
-Benchmark: 100K-row `Arrow::Int32Array`, sum all valid values, 5 iterations, Ruby 4.0.3.
-
-| null rate | Red Arrow `each` | string-bits | Speedup |
-|-----------|-----------------|-------------|---------|
-| 10%       | 3397 ms         | 3144 ms     | 1.1x    |
-| 50%       | 3220 ms         | 1712 ms     | 1.9x    |
-| 90%       | 2615 ms         |  387 ms     | 6.8x    |
-
-The speedup tracks `1 / (1 - null_rate)`: at 50% null the gem skips half the GObject calls; at 90% null it skips 90% of them. The bottleneck in both cases is the per-element bridge overhead, so the gain is proportional to how many elements are skipped.
-
-**Pattern used in the benchmark:**
-
-```ruby
-# One-time setup: build validity bitmap from source data (amortized cost).
-# With Arrow::Array#null_bitmap this would become a zero-copy read;
-# that method is not yet part of the Red Arrow public API.
-bitmap = ("\x00" * ((n + 7) / 8)).b
-source_data.each_with_index { |v, i| bitmap.set_bit(i) if v }
-
-# Repeated iteration (timed):
-bitmap.each_set_bit(order: :lsb) { |i| process(arrow_col[i]) }
-```
-
-This pattern pays off when the same column is iterated more than once — the bitmap construction cost is amortized over subsequent passes. For a single scan, Red Arrow's `each` is simpler and the overhead difference is small at low null rates.
 
 ### Arrow IPC serialization
 
@@ -704,7 +659,28 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 
 ---
 
+## Benchmark
+
+<details>
+
+<summary>Benchmark</summary>
+
+Environment:
+
+```
+$> uname -a
+Linux hasumi-Ubuntu-Desktop 6.17.0-20-generic #20~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Thu Mar 19 01:28:37 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+```
+
+</details>
+
+---
+
 ## Prior Art: Bit Operations in Other Languages
+
+<details>
+
+<summary>Prior Art: Bit Operations in Other Languages</summary>
 
 Bit-level operations are common across languages, but they are typically exposed either as low-level primitives on integers or through dedicated container types. This proposal integrates those capabilities directly into Ruby's `String`, preserving zero-copy semantics while raising the abstraction to match Ruby's Enumerable style.
 
@@ -790,3 +766,5 @@ Key differences from the above:
 * Natural method naming consistent with `String#bytes` / `each_byte`
 
 In effect, this design lifts bit manipulation from low-level primitives into a high-level, idiomatic Ruby interface, while preserving the performance characteristics required for real-world workloads such as Apache Arrow and bitmap rendering.
+
+</details>
