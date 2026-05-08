@@ -5,18 +5,16 @@ class TestEachSetBit < Minitest::Test
     @data = [0b10101010, 0b11001100].pack('C*')
   end
 
-  def test_msb_positions
-    positions = []
-    @data.each_set_bit { |i| positions << i }
-    # descending flat positions: byte[1] MSB-first, then byte[0] MSB-first
-    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], positions
-  end
-
   def test_lsb_positions
     positions = []
-    @data.each_set_bit(order: :lsb) { |i| positions << i }
-    # ascending flat positions: byte[0] LSB-first, then byte[1] LSB-first
+    @data.each_set_bit { |i| positions << i }
     assert_equal [1, 3, 5, 7, 10, 11, 14, 15], positions
+  end
+
+  def test_msb_positions
+    positions = []
+    @data.each_set_bit(order: :msb) { |i| positions << i }
+    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], positions
   end
 
   def test_empty_string
@@ -72,22 +70,22 @@ class TestEachSetBit < Minitest::Test
     assert_same @data, @data.each_set_bit(order: :lsb) {}
   end
 
-  def test_enumerator_msb
-    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], @data.each_set_bit.to_a
+  def test_enumerator_lsb
+    assert_equal [1, 3, 5, 7, 10, 11, 14, 15], @data.each_set_bit.to_a
   end
 
-  def test_enumerator_lsb
-    assert_equal [1, 3, 5, 7, 10, 11, 14, 15], @data.each_set_bit(order: :lsb).to_a
+  def test_enumerator_msb
+    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], @data.each_set_bit(order: :msb).to_a
   end
 
   def test_lsb_positions_match_bit_at
-    @data.each_set_bit(order: :lsb) do |n|
+    @data.each_set_bit do |n|
       assert_equal true, @data.bit_at(n), "bit_at(#{n}) should be set"
     end
   end
 
   def test_msb_is_reverse_of_lsb
-    msb = @data.each_set_bit.to_a
+    msb = @data.each_set_bit(order: :msb).to_a
     lsb = @data.each_set_bit(order: :lsb).to_a
     assert_equal msb, lsb.reverse
   end

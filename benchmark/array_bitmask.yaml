@@ -1,0 +1,13 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  N    = 100_000
+  DATA = Array.new(N) { rand < 0.5 ? rand(1000) : nil }
+  VALUES = DATA.map { |v| v || 0 }
+  BITMAP = ("\x00" * ((N + 7) / 8)).b
+  DATA.each_with_index { |v, i| BITMAP.set_bit(i) if v }
+
+benchmark:
+  baseline: |
+    DATA.map { |v| v }
+  string_bits: "VALUES.bitmask(BITMAP, order: :lsb)"

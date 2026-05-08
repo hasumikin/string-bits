@@ -1,6 +1,6 @@
 # String Bit Operations
 
-Ruby's `String` is already a byte sequence. This proposal extends it one level lower: **a bit sequence** — making packed binary buffers first-class values without any new class or intermediate allocation.
+Ruby's `String` is already a byte sequence. This proposal extends it one level lower: **a bit sequence** — making packed binary buffers first-class values without any new class or intermediate allocation. A companion extension to `Array` applies validity bitmaps directly to Ruby arrays, covering the Apache Arrow use case without per-element `rb_yield` overhead.
 
 The methods are designed for real workloads: Apache Arrow validity bitmaps, bitmap font glyph data, and any protocol buffer where bits carry meaning. Most methods operate zero-copy on the existing string bytes; the non-`!` bulk bitwise variants and `bit_slice` return a newly allocated `String`. Because the API relies solely on `String`, the same methods would benefit memory-constrained implementations such as mruby and PicoRuby once adopted into CRuby.
 
@@ -15,6 +15,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no |
+| Array validity mask | `Array#bitmask`, `Array#bitmask!` | yes (`!`) / no |
 
 <details>
 
@@ -68,8 +69,8 @@ null_count  = bitmap.bytesize * 8 - bitmap.popcount
 
 ---
 
-#### `each_bit(order: :msb) { |bool| ... } -> self`
-#### `each_bit(order: :msb) -> Enumerator`
+#### `each_bit(order: :lsb) { |bool| ... } -> self`
+#### `each_bit(order: :lsb) -> Enumerator`
 
 Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. With a block, returns `self`.
 
@@ -88,7 +89,7 @@ order: :msb  -- position (total-1) first (last byte MSB first)
 ```
 
 ```ruby
-"\xAA".each_bit(order: :lsb).to_a
+"\xAA".each_bit.to_a
 #=> [false, true, false, true, false, true, false, true]
 #    pos 0   1     2      3     4      5     6      7
 
@@ -99,29 +100,29 @@ order: :msb  -- position (total-1) first (last byte MSB first)
 
 ---
 
-#### `bits(order: :msb) -> Array`
-#### `bits(order: :msb) { |bool| ... } -> self`
+#### `bits(order: :lsb) -> Array`
+#### `bits(order: :lsb) { |bool| ... } -> self`
 
 Without a block, returns an `Array` of `true`/`false` values — equivalent to `each_bit(order: order).to_a`. With a block, forwards each bit to the block and returns `self` — equivalent to `each_bit(order: order) { |b| ... }`.
 
 Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ```ruby
-"\xAA".bits(order: :lsb)
+"\xAA".bits
 #=> [false, true, false, true, false, true, false, true]
 
 "\xAA".bits(order: :msb)
 #=> [true, false, true, false, true, false, true, false]
 
-"\xAA".bits(order: :lsb) { |b| print b ? "1" : "0" }
+"\xAA".bits { |b| print b ? "1" : "0" }
 # prints: 01010101
 # returns: "\xAA"
 ```
 
 ---
 
-#### `each_set_bit(order: :msb) { |n| ... } -> self`
-#### `each_set_bit(order: :msb) -> Enumerator`
+#### `each_set_bit(order: :lsb) { |n| ... } -> self`
+#### `each_set_bit(order: :lsb) -> Enumerator`
 
 Yields the flat position of each **set bit** (bit value == 1). Without a block, returns an `Enumerator`. With a block, returns `self`. The C implementation can use `__builtin_ctz` (count trailing zeros) to jump directly to the next set bit within each byte without scanning every bit.
 
@@ -137,10 +138,10 @@ order: :lsb yields:  1,  3,  5,  7, 10, 11, 14, 15   (ascending)
 order: :msb yields: 15, 14, 11, 10,  7,  5,  3,  1   (descending)
 ```
 
-Positions from `each_set_bit(order: :lsb)` can be passed directly to `bit_at`:
+Positions from `each_set_bit` can be passed directly to `bit_at`:
 
 ```ruby
-data.each_set_bit(order: :lsb) do |n|
+data.each_set_bit do |n|
   data.bit_at(n)  #=> always true
 end
 ```
@@ -148,25 +149,25 @@ end
 Apache Arrow idiom — iterate over valid element indices:
 
 ```ruby
-validity_bitmap.each_set_bit(order: :lsb) do |i|
+validity_bitmap.each_set_bit do |i|
   process(column_data, i)
 end
 ```
 
 ---
 
-#### `set_bit_positions(order: :msb) -> Array`
-#### `set_bit_positions(order: :msb) { |n| ... } -> self`
+#### `set_bit_positions(order: :lsb) -> Array`
+#### `set_bit_positions(order: :lsb) { |n| ... } -> self`
 
 Without a block, returns an `Array` of set-bit positions — equivalent to `each_set_bit(order: order).to_a`. With a block, forwards each position to the block and returns `self` — equivalent to `each_set_bit(order: order) { |n| ... }`.
 
 Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ```ruby
-"\xAA".set_bit_positions(order: :lsb)   #=> [1, 3, 5, 7]
+"\xAA".set_bit_positions           #=> [1, 3, 5, 7]
 "\xAA".set_bit_positions(order: :msb)   #=> [7, 5, 3, 1]
 
-"\xAA\xCC".set_bit_positions(order: :lsb)
+"\xAA\xCC".set_bit_positions
 #=> [1, 3, 5, 7, 10, 11, 14, 15]
 ```
 
@@ -352,6 +353,55 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 "\xAA".bit_xor("\xFF")  #=> "\x55"   # XOR with all-ones is bit_not
 ```
 
+---
+
+### Array validity mask
+
+`Array#bitmask` applies a bitmap to an array, returning a new array of the same length where each element is either kept or replaced with `nil` according to the corresponding bit. `Array#bitmask!` performs the same operation in place.
+
+No Ruby block or `rb_yield` is involved — the operation is performed entirely in C, making it significantly faster than a Ruby-level `map` loop.
+
+#### `bitmask(bitmap, order: :lsb, invert: false) -> Array`
+
+Returns a new `Array`. Elements whose corresponding bit is 1 (for `invert: false`) or 0 (for `invert: true`) are kept; all others become `nil`.
+
+```ruby
+data   = [1, 2, 3, 4]
+
+# LSB-first (default, Apache Arrow convention): 0b00001101 -> bits 0,2,3 set = elements 0,2,3 valid
+bitmap = "\x0D".b   # 0b00001101
+data.bitmask(bitmap)                        #=> [1, nil, 3, 4]
+
+# MSB-first: 0b11010000 -> bits 7,6,4 set = elements 0,1,3 valid
+bitmap = "\xD0".b   # 0b11010000
+data.bitmask(bitmap, order: :msb)           #=> [1, 2, nil, 4]
+
+# invert: true — keep where bit is 0, nil where bit is 1
+bitmap = "\x0D".b
+data.bitmask(bitmap, invert: true)          #=> [nil, 2, nil, nil]
+```
+
+Apache Arrow idiom — materialize an Arrow column with nulls applied:
+
+```ruby
+# One-time setup: build validity bitmap from source data.
+bitmap = ("\x00" * ((n + 7) / 8)).b
+source_data.each_with_index { |v, i| bitmap.set_bit(i) if v }
+
+# Apply bitmap to a pre-fetched values array (no per-element rb_yield):
+result = values.bitmask(bitmap)
+```
+
+#### `bitmask!(bitmap, order: :lsb, invert: false) -> self`
+
+Same as `bitmask` but modifies the array in place and returns `self`. Elements that would become `nil` are overwritten; valid elements are untouched.
+
+```ruby
+ary = [1, 2, 3, 4]
+ary.bitmask!("\x0D".b)   #=> [1, nil, 3, 4]  (LSB-first default)
+ary                      #=> [1, nil, 3, 4]  (modified in place)
+```
+
 </details>
 
 ---
@@ -386,7 +436,7 @@ The `order:` keyword controls **traversal direction** only; it never changes wha
 | `:lsb`   | low -> high | 0, 1, 2, ... , total-1 |
 | `:msb`   | high -> low | total-1, ..., 2, 1, 0 |
 
-The default is `:msb` — bits are yielded from the highest-numbered position down to 0, matching the conventional representation of binary data where the most significant bit appears on the left. Apache Arrow and numeric contexts that need ascending element order should pass `order: :lsb` explicitly.
+The default is `:lsb` — bits are yielded from position 0 upward, matching the natural order of array indices and the Apache Arrow validity bitmap convention (element `i` = byte `i/8` bit `i%8`). Pass `order: :msb` for conventional binary display where the most significant bit appears on the left.
 
 The symbol values `:lsb` and `:msb` were chosen to leave room for future extensions (e.g. `:native`, `:network`) without a breaking change.
 
@@ -456,24 +506,17 @@ choices should be revisited.
 
 ### The `order:` default
 
-The current default for `order:` is `:msb`. Both directions are defensible.
+The default for `order:` is `:lsb`.
 
-**Case for `:msb` as default:** Binary data is conventionally displayed with the most
-significant bit on the left. `each_bit(order: :msb)` over a single byte produces digits in
-the familiar left-to-right order. Bitmap font rendering yields pixels left-to-right naturally
-without an explicit keyword argument.
+The primary motivation is consistency with `Array#bitmask`. Arrow validity bitmaps are LSB-first by specification: element `i` lives at byte `i/8`, bit `i%8`, which is exactly the LSB-first addressing this library uses. With `:lsb` as the default, `values.bitmask(bitmap)` and `bitmap.each_set_bit { |i| values[i] }` work correctly without any explicit keyword argument.
 
-**Case for `:lsb` as default:** The majority of identified use cases require ascending
-iteration (Arrow, hardware registers, PostgreSQL bitmaps, Roaring Bitmaps, graph traversals).
-These callers must write `order: :lsb` explicitly even though ascending iteration is the
-common programming idiom. Positions returned by `set_bit_positions(order: :lsb)` are
-immediately usable as array indices without any transformation. If Arrow is treated as the
-primary production workload, making `:lsb` the default would reduce friction for the most
-common path.
+A secondary reason is that `:lsb` yields positions in ascending order (0, 1, 2, …), matching the natural order of array indices. `set_bit_positions` returns values that are immediately usable as array subscripts.
 
-There is no universally correct answer. The default affects every caller that omits `order:`,
-and changing it after adoption would be a breaking change. The open question is which omission
-is more surprising: ascending iteration or MSB-first display?
+The cost is that single-byte display — where `:msb` yields bits in left-to-right visual order — now requires `order: :msb` explicitly. This is a reasonable trade-off when Arrow and columnar analytics represent the primary production workload.
+
+The symbol values `:lsb` and `:msb` were chosen to leave room for future extensions (e.g. `:native`, `:network`) without a breaking change.
+
+As a consequence, `each_bit(order: :msb).to_a` is always exactly the reverse of `each_bit.to_a`, and the same holds for `each_set_bit`.
 
 ### Packed integer fields
 
@@ -580,7 +623,7 @@ Arrow validity bitmap for 10 elements (byte[0] = 0b11111111, byte[1] = 0b0000001
   validity:  ok   ok   ok   ok   ok   ok   ok   ok   ok   ok
 ```
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit(order: :lsb)` yields valid element indices in ascending order.
+`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit(order: :lsb)` yields valid element indices in ascending order. `Array#bitwise(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values — entirely in C with no per-element callback overhead.
 
 #### Arrow IPC serialization
 

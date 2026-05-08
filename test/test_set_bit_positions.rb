@@ -10,12 +10,12 @@ class TestSetBitPositions < Minitest::Test
     assert_instance_of Array, @data.set_bit_positions(order: :lsb)
   end
 
-  def test_array_content_msb
-    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], @data.set_bit_positions
+  def test_array_content_lsb
+    assert_equal [1, 3, 5, 7, 10, 11, 14, 15], @data.set_bit_positions
   end
 
-  def test_array_content_lsb
-    assert_equal [1, 3, 5, 7, 10, 11, 14, 15], @data.set_bit_positions(order: :lsb)
+  def test_array_content_msb
+    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], @data.set_bit_positions(order: :msb)
   end
 
   def test_with_block_yields_same_as_each_set_bit
@@ -33,7 +33,7 @@ class TestSetBitPositions < Minitest::Test
 
   def test_set_bit_positions_equals_each_set_bit_to_a
     assert_equal @data.each_set_bit.to_a,              @data.set_bit_positions
-    assert_equal @data.each_set_bit(order: :lsb).to_a, @data.set_bit_positions(order: :lsb)
+    assert_equal @data.each_set_bit(order: :msb).to_a, @data.set_bit_positions(order: :msb)
   end
 
   def test_empty_string

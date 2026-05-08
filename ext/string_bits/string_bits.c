@@ -105,8 +105,27 @@ sb_ctzll(uint64_t x)
 
 /* common functions --------------------------------------------------------- */
 
+/*
+ * rb_str_get_bit: read one bit from a raw byte sequence.
+ *
+ * Porting to Ruby Core:
+ *   1. Move this declaration to include/ruby/internal/string.h (or
+ *      internal/string.h for a non-public internal API).
+ *   2. Remove the `static inline` storage class; declare as:
+ *        static inline int rb_str_get_bit(const char *ptr, long bit_index, int msb_first);
+ *      in the header so both string.c and array.c can include it.
+ *   3. Replace all call sites in string.c and array.c accordingly.
+ *
+ * Parameters:
+ *   ptr        - pointer to the first byte of the bitmap
+ *   bit_index  - flat zero-based position; byte = bit_index/8 from ptr
+ *   msb_first  - non-zero: bit 0 of each byte is the MSB (leftmost);
+ *                zero:     bit 0 of each byte is the LSB (Arrow/hardware convention)
+ *
+ * Returns 0 or 1.
+ */
 static inline int
-get_bit(const char *ptr, long bit_index, int msb_first)
+rb_str_get_bit(const char *ptr, long bit_index, int msb_first)
 {
     long byte_index = bit_index / 8;
     int bit_offset = msb_first ? (7 - bit_index % 8) : (bit_index % 8);
@@ -116,7 +135,7 @@ get_bit(const char *ptr, long bit_index, int msb_first)
 static inline int
 test_bit(const char *ptr, long bit_index)
 {
-    return get_bit(ptr, bit_index, 0);
+    return rb_str_get_bit(ptr, bit_index, 0);
 }
 
 /* Convert a Ruby Integer to a long bit index without calling NUM2LONG on Bignums.
@@ -160,10 +179,10 @@ parse_order(int argc, VALUE *argv)
 {
     VALUE opts = Qnil;
     rb_scan_args(argc, argv, "0:", &opts);
-    if (NIL_P(opts)) return 1;
+    if (NIL_P(opts)) return 0;
     VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
-    if (NIL_P(order) || order == ID2SYM(rb_intern("msb"))) return 1;
-    if (order == ID2SYM(rb_intern("lsb"))) return 0;
+    if (NIL_P(order) || order == ID2SYM(rb_intern("lsb"))) return 0;
+    if (order == ID2SYM(rb_intern("msb"))) return 1;
     rb_raise(rb_eArgError, "order must be :lsb or :msb");
     return 0;
 }
@@ -242,12 +261,12 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
 
     if (msb_first) {
         for (long i = total_bits - 1; i >= 0; i--) {
-            rb_yield(get_bit(str, i, 0) ? Qtrue : Qfalse);
+            rb_yield(rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse);
         }
     }
     else {
         for (long i = 0; i < total_bits; i++) {
-            rb_yield(get_bit(str, i, 0) ? Qtrue : Qfalse);
+            rb_yield(rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse);
         }
     }
 
@@ -267,13 +286,13 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
 
     if (msb_first) {
         for (long i = total_bits - 1; i >= 0; i--) {
-            VALUE bit = get_bit(str, i, 0) ? Qtrue : Qfalse;
+            VALUE bit = rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse;
             have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
         }
     }
     else {
         for (long i = 0; i < total_bits; i++) {
-            VALUE bit = get_bit(str, i, 0) ? Qtrue : Qfalse;
+            VALUE bit = rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse;
             have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
         }
     }
@@ -621,6 +640,144 @@ rb_str_bit_xor_bang(VALUE self, VALUE other)
     return self;
 }
 
+/* Array#bitmask and Array#bitmask! --------------------------------------- */
+
+/*
+ * parse_bitmask_kwargs: extract bitmap, order:, and invert: from method arguments.
+ *
+ * Porting to Ruby Core:
+ *   1. Keep this as a `static` helper in array.c — it is only called by
+ *      ary_bitmask and ary_bitmask_bang, so no header declaration is needed.
+ *   2. Rename to ary_bitmask_kwargs or similar to follow array.c conventions
+ *      (static helpers in array.c use the `ary_` prefix, not `rb_ary_`).
+ */
+static void
+parse_bitmask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
+                     int *msb_first_out, int *invert_out, int *is_integer_out)
+{
+    VALUE bitmap, opts;
+    rb_scan_args(argc, argv, "1:", &bitmap, &opts);
+
+    int msb_first  = 0; /* default :lsb */
+    int invert     = 0; /* default false */
+    int is_integer = rb_integer_type_p(bitmap);
+
+    if (!is_integer) Check_Type(bitmap, T_STRING);
+
+    if (!NIL_P(opts)) {
+        VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
+        if (!NIL_P(order)) {
+            if (order == ID2SYM(rb_intern("lsb")))       msb_first = 0;
+            else if (order == ID2SYM(rb_intern("msb"))) {
+                if (is_integer)
+                    rb_raise(rb_eArgError,
+                             "order: :msb is not supported for Integer bitmap; "
+                             "Integer bits are always LSB-first");
+                msb_first = 1;
+            }
+            else rb_raise(rb_eArgError, "order: must be :lsb or :msb");
+        }
+        VALUE inv = rb_hash_aref(opts, ID2SYM(rb_intern("invert")));
+        if (!NIL_P(inv)) {
+            invert = RTEST(inv) ? 1 : 0;
+        }
+    }
+
+    *bitmap_out     = bitmap;
+    *msb_first_out  = msb_first;
+    *invert_out     = invert;
+    *is_integer_out = is_integer;
+}
+
+/* Read bit i from an Integer bitmap (always LSB-first).
+ * Bits beyond the integer's width are 0 (valid for non-negative integers). */
+static inline int
+integer_get_bit(VALUE n, long i)
+{
+    if (FIXNUM_P(n)) {
+        long v = FIX2LONG(n);
+        if (v < 0)
+            rb_raise(rb_eArgError, "Integer bitmap must be non-negative");
+        if (i >= (long)(sizeof(long) * CHAR_BIT) - 1) return 0;
+        return (int)((v >> i) & 1);
+    }
+    if (RBIGNUM_NEGATIVE_P(n))
+        rb_raise(rb_eArgError, "Integer bitmap must be non-negative");
+    VALUE bit = rb_funcall(n, rb_intern("[]"), 1, LONG2FIX(i));
+    return RB_TEST(bit) ? 1 : 0;
+}
+
+static VALUE
+rb_ary_bitmask(int argc, VALUE *argv, VALUE self)
+{
+    VALUE bitmap;
+    int msb_first, invert, is_integer;
+    parse_bitmask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
+
+    long ary_len = RARRAY_LEN(self);
+    const VALUE *src = RARRAY_CONST_PTR(self);
+    VALUE result = rb_ary_new_capa(ary_len);
+
+    if (is_integer) {
+        for (long i = 0; i < ary_len; i++) {
+            int bit = integer_get_bit(bitmap, i);
+            if (invert) bit = !bit;
+            rb_ary_push(result, bit ? src[i] : Qnil);
+        }
+    }
+    else {
+        const char *bmp = RSTRING_PTR(bitmap);
+        long bmp_len    = RSTRING_LEN(bitmap);
+        long needed     = (ary_len + 7) >> 3;
+        if (needed > bmp_len)
+            rb_raise(rb_eArgError,
+                     "bitmap too short: need %ld bytes for %ld elements, got %ld",
+                     needed, ary_len, bmp_len);
+        for (long i = 0; i < ary_len; i++) {
+            int bit = rb_str_get_bit(bmp, i, msb_first);
+            if (invert) bit = !bit;
+            rb_ary_push(result, bit ? src[i] : Qnil);
+        }
+    }
+
+    return result;
+}
+
+static VALUE
+rb_ary_bitmask_bang(int argc, VALUE *argv, VALUE self)
+{
+    VALUE bitmap;
+    int msb_first, invert, is_integer;
+    parse_bitmask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
+
+    long ary_len = RARRAY_LEN(self);
+    rb_ary_modify(self);
+
+    if (is_integer) {
+        for (long i = 0; i < ary_len; i++) {
+            int bit = integer_get_bit(bitmap, i);
+            if (invert) bit = !bit;
+            if (!bit) rb_ary_store(self, i, Qnil);
+        }
+    }
+    else {
+        const char *bmp = RSTRING_PTR(bitmap);
+        long bmp_len    = RSTRING_LEN(bitmap);
+        long needed     = (ary_len + 7) >> 3;
+        if (needed > bmp_len)
+            rb_raise(rb_eArgError,
+                     "bitmap too short: need %ld bytes for %ld elements, got %ld",
+                     needed, ary_len, bmp_len);
+        for (long i = 0; i < ary_len; i++) {
+            int bit = rb_str_get_bit(bmp, i, msb_first);
+            if (invert) bit = !bit;
+            if (!bit) rb_ary_store(self, i, Qnil);
+        }
+    }
+
+    return self;
+}
+
 /* Init -------------------------------------------------------------------- */
 
 void
@@ -644,4 +801,6 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_or!",           rb_str_bit_or_bang,       1);
     rb_define_method(rb_cString, "bit_xor",           rb_str_bit_xor,           1);
     rb_define_method(rb_cString, "bit_xor!",          rb_str_bit_xor_bang,      1);
+    rb_define_method(rb_cArray,  "bitmask",            rb_ary_bitmask,          -1);
+    rb_define_method(rb_cArray,  "bitmask!",           rb_ary_bitmask_bang,     -1);
 }

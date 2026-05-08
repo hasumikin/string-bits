@@ -6,12 +6,12 @@ class TestBits < Minitest::Test
     assert_instance_of Array, "\xAA".bits(order: :lsb)
   end
 
-  def test_array_content_msb
-    assert_equal [true, false, true, false, true, false, true, false], "\xAA".bits
+  def test_array_content_lsb
+    assert_equal [false, true, false, true, false, true, false, true], "\xAA".bits
   end
 
-  def test_array_content_lsb
-    assert_equal [false, true, false, true, false, true, false, true], "\xAA".bits(order: :lsb)
+  def test_array_content_msb
+    assert_equal [true, false, true, false, true, false, true, false], "\xAA".bits(order: :msb)
   end
 
   def test_with_block_yields_same_as_each_bit

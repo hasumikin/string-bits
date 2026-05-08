@@ -1,30 +1,28 @@
 require_relative "test_helper"
 
 class TestEachBit < Minitest::Test
-  def test_msb_single_byte
-    bits = []
-    "\xAA".each_bit { |b| bits << b }
-    assert_equal [true, false, true, false, true, false, true, false], bits
-  end
-
   def test_lsb_single_byte
     bits = []
-    "\xAA".each_bit(order: :lsb) { |b| bits << b }
+    "\xAA".each_bit { |b| bits << b }
     assert_equal [false, true, false, true, false, true, false, true], bits
   end
 
-  def test_msb_multi_byte
+  def test_msb_single_byte
     bits = []
-    [0b10101010, 0b11001100].pack('C*').each_bit { |b| bits << (b ? 1 : 0) }
-    # order: :msb yields from high positions to low: byte[1] MSB-first, then byte[0] MSB-first
-    assert_equal [1,1,0,0,1,1,0,0, 1,0,1,0,1,0,1,0], bits
+    "\xAA".each_bit(order: :msb) { |b| bits << b }
+    assert_equal [true, false, true, false, true, false, true, false], bits
   end
 
   def test_lsb_multi_byte
     bits = []
-    [0b10101010, 0b11001100].pack('C*').each_bit(order: :lsb) { |b| bits << (b ? 1 : 0) }
-    # order: :lsb yields from low positions to high: byte[0] LSB-first, then byte[1] LSB-first
+    [0b10101010, 0b11001100].pack('C*').each_bit { |b| bits << (b ? 1 : 0) }
     assert_equal [0,1,0,1,0,1,0,1, 0,0,1,1,0,0,1,1], bits
+  end
+
+  def test_msb_multi_byte
+    bits = []
+    [0b10101010, 0b11001100].pack('C*').each_bit(order: :msb) { |b| bits << (b ? 1 : 0) }
+    assert_equal [1,1,0,0,1,1,0,0, 1,0,1,0,1,0,1,0], bits
   end
 
   def test_empty_string
@@ -56,14 +54,14 @@ class TestEachBit < Minitest::Test
     assert_same s, s.each_bit(order: :lsb) {}
   end
 
-  def test_enumerator_msb
+  def test_enumerator_lsb
     e = "\xAA".each_bit
-    assert_equal [true, false, true, false, true, false, true, false], e.to_a
+    assert_equal [false, true, false, true, false, true, false, true], e.to_a
   end
 
-  def test_enumerator_lsb
-    e = "\xAA".each_bit(order: :lsb)
-    assert_equal [false, true, false, true, false, true, false, true], e.to_a
+  def test_enumerator_msb
+    e = "\xAA".each_bit(order: :msb)
+    assert_equal [true, false, true, false, true, false, true, false], e.to_a
   end
 
   def test_enumerator_map
@@ -73,7 +71,7 @@ class TestEachBit < Minitest::Test
 
   def test_msb_is_reverse_of_lsb
     ["\xAA", [0b10101010, 0b11001100].pack('C*')].each do |data|
-      msb = data.each_bit.to_a
+      msb = data.each_bit(order: :msb).to_a
       lsb = data.each_bit(order: :lsb).to_a
       assert_equal msb, lsb.reverse
     end
