@@ -640,6 +640,142 @@ rb_str_bit_xor_bang(VALUE self, VALUE other)
     return self;
 }
 
+/* packed bit-field iteration ---------------------------------------------- */
+
+/*
+ * ebs_extract: copy bitlen bits starting at bit_offset from src into a new String.
+ * Layout is identical to bit_slice: LSB-first within each byte, zero-padded tail.
+ *
+ * Porting to Ruby Core:
+ *   1. Move this helper into string.c alongside the bit_slice implementation.
+ *   2. Share it with rb_str_bit_slice to avoid duplication.
+ *   3. Remove the `static` qualifier so it can be called from array.c if needed.
+ */
+static VALUE
+ebs_extract(const unsigned char *src, long src_len, long bit_offset,
+            long bitlen, long out_bytes, rb_encoding *enc)
+{
+    VALUE result = rb_str_buf_new(out_bytes);
+    rb_str_resize(result, out_bytes);
+    rb_enc_associate(result, enc);
+    unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
+
+    long byte_off = bit_offset >> 3;
+    int shift = (int)(bit_offset & 7);
+
+    if (shift == 0) {
+        memcpy(dst, src + byte_off, out_bytes);
+    }
+    else {
+        int anti_shift = 8 - shift;
+        for (long i = 0; i < out_bytes; i++) {
+            unsigned char lo = src[byte_off + i];
+            unsigned char hi = (byte_off + i + 1 < src_len) ? src[byte_off + i + 1] : 0;
+            dst[i] = (unsigned char)((lo >> shift) | (hi << anti_shift));
+        }
+    }
+
+    int tail_bits = (int)(bitlen & 7);
+    if (tail_bits) {
+        dst[out_bytes - 1] &= (unsigned char)((1u << tail_bits) - 1);
+    }
+
+    return result;
+}
+
+/* String#each_bit_slice(bitlen, planes: 1, order: :lsb) { |*planes| } -> self
+ * String#each_bit_slice(bitlen, planes: 1, order: :lsb) -> Enumerator
+ *
+ * Iterates over the string in consecutive bitlen-bit chunks, grouping `planes`
+ * chunks per block call. Each chunk is passed to the block as a packed String
+ * with the same LSB-first bit layout as bit_slice.
+ *
+ * order: :lsb (default) iterates from the first chunk forward.
+ * order: :msb iterates from the last complete group backward.
+ *
+ * Incomplete trailing bits (when bytesize*8 is not divisible by bitlen*planes)
+ * are silently dropped, matching the behavior of each_slice on Arrays.
+ *
+ * Porting to Ruby Core:
+ *   1. Move ebs_extract and this function into string.c.
+ *   2. Register with rb_define_method in Init_String().
+ *   3. Replace ALLOCA_N with a stack array for small `planes` and heap otherwise.
+ */
+static VALUE
+rb_str_each_bit_slice(int argc, VALUE *argv, VALUE self)
+{
+    RETURN_ENUMERATOR(self, argc, argv);
+
+    VALUE vbitlen, opts;
+    rb_scan_args(argc, argv, "1:", &vbitlen, &opts);
+
+    if (!rb_integer_type_p(vbitlen)) {
+        rb_raise(rb_eTypeError, "bitlen must be an integer");
+    }
+    long bitlen = NUM2LONG(vbitlen);
+    if (bitlen <= 0) {
+        rb_raise(rb_eArgError, "bitlen must be positive");
+    }
+
+    long planes = 1;
+    int msb_first = 0;
+
+    if (!NIL_P(opts)) {
+        VALUE v_planes = rb_hash_aref(opts, ID2SYM(rb_intern("planes")));
+        if (!NIL_P(v_planes)) {
+            if (!rb_integer_type_p(v_planes)) {
+                rb_raise(rb_eTypeError, "planes must be an integer");
+            }
+            planes = NUM2LONG(v_planes);
+            if (planes <= 0) {
+                rb_raise(rb_eArgError, "planes must be positive");
+            }
+        }
+        VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
+        if (!NIL_P(order)) {
+            if (order == ID2SYM(rb_intern("lsb")))      msb_first = 0;
+            else if (order == ID2SYM(rb_intern("msb"))) msb_first = 1;
+            else rb_raise(rb_eArgError, "order must be :lsb or :msb");
+        }
+    }
+
+    long src_len = RSTRING_LEN(self);
+    long total_bits = src_len * 8;
+    long step = bitlen * planes;
+    long out_bytes = (bitlen + 7) / 8;
+    long iterations = total_bits / step;
+
+    rb_encoding *enc = rb_enc_get(self);
+    VALUE *plane_vals = ALLOCA_N(VALUE, planes);
+
+    if (!msb_first) {
+        for (long iter = 0; iter < iterations; iter++) {
+            long base_bit = iter * step;
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            for (long p = 0; p < planes; p++) {
+                plane_vals[p] = ebs_extract(src, src_len,
+                                            base_bit + p * bitlen,
+                                            bitlen, out_bytes, enc);
+            }
+            rb_yield_values2((int)planes, plane_vals);
+        }
+    }
+    else {
+        for (long iter = iterations - 1; iter >= 0; iter--) {
+            long base_bit = iter * step;
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            for (long p = 0; p < planes; p++) {
+                plane_vals[p] = ebs_extract(src, src_len,
+                                            base_bit + p * bitlen,
+                                            bitlen, out_bytes, enc);
+            }
+            rb_yield_values2((int)planes, plane_vals);
+        }
+    }
+
+    return self;
+}
+
 /* Array#bitmask and Array#bitmask! --------------------------------------- */
 
 /*
@@ -790,6 +926,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "each_set_bit",      rb_str_each_set_bit,     -1);
     rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,         2);
+    rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,           1);
     rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,         1);
     rb_define_method(rb_cString, "flip_bit",          rb_str_flip_bit,          1);

@@ -12,6 +12,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | iterate bits | `each_bit`, `bits` | yes |
 | iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes |
 | extract | `bit_slice` | no |
+| packed bit-field iteration | `each_bit_slice` | no |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no |
@@ -208,6 +209,86 @@ Apache Arrow idiom — normalize a non-byte-aligned validity bitmap for IPC seri
 # Arrow in-memory slice has bit offset 5; IPC requires offset 0
 ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 ```
+
+---
+
+#### `each_bit_slice(bitlen, planes: 1, order: :lsb) { |*slices| } -> self`
+#### `each_bit_slice(bitlen, planes: 1, order: :lsb) -> Enumerator`
+
+Iterates over the string in consecutive `bitlen`-bit windows, grouping `planes` windows per block call. Each window is passed to the block as a packed `String` using the same LSB-first bit layout as `bit_slice`. Without a block, returns an `Enumerator`.
+
+Incomplete trailing bits — when `bytesize * 8` is not a multiple of `bitlen * planes` — are silently dropped, matching the behavior of `Enumerable#each_slice`.
+
+```
+order: :lsb (default)  -- windows yielded left-to-right (ascending bit position)
+order: :msb            -- windows yielded right-to-left (descending bit position)
+```
+
+```ruby
+data = "\xAA\xCC"   # 16 bits
+
+data.each_bit_slice(8).to_a
+#=> ["\xAA", "\xCC"]   # two 8-bit slices
+
+data.each_bit_slice(8, planes: 2).to_a
+#=> [["\xAA", "\xCC"]] # one iteration, two planes per call
+```
+
+**12-bit packed ADC / sensor data — the primary motivation**
+
+Embedded systems, audio codecs, and image sensors routinely pack measurements as 12-bit
+values into contiguous byte streams. This format is ubiquitous: it appears in ADC raw
+capture buffers, I2S / PDM audio frames, CAN bus sensor payloads, and MIPI CSI-2 RAW12
+image data. Because 12 is not a multiple of 8, there is no single-byte alignment — two
+12-bit samples share a middle byte, and extracting them by hand requires careful shift
+arithmetic that is both tedious to write and error-prone.
+
+`each_bit_slice` makes 12-bit (and any other fixed-width) packed formats first-class.
+For multi-channel data (stereo audio, RGB sensor triplets, dual-ADC boards), the `planes:`
+keyword groups consecutive samples into a single block call, so the caller receives all
+channels for one sample point at once without extra bookkeeping.
+
+```ruby
+bitlen = 12
+
+# Dual-channel 12-bit ADC: samples packed as ch0|ch1|ch0|ch1|...
+adc_buf.each_bit_slice(bitlen, planes: 2, order: :lsb) do |ch0, ch1|
+  # ch0 and ch1 are Strings; bit_at(i) reads the i-th bit (LSB-first)
+  voltage0 = ch0_to_voltage(ch0)
+  voltage1 = ch1_to_voltage(ch1)
+  record(voltage0, voltage1)
+end
+```
+
+The `planes:` keyword also enables efficient half-block rendering, as used in bitmap
+fonts and braille displays: one iteration delivers two scan-lines simultaneously, so
+the vertical combination (upper/lower half-block characters) can be computed without
+maintaining external state between calls:
+
+```ruby
+bitlen = 12
+
+data.each_bit_slice(bitlen, planes: 2, order: :lsb) do |plane0, plane1|
+  line = ""
+  i = 0
+  while i < bitlen
+    case [plane0.bit_at(i), plane1.bit_at(i)]
+    in [true,  true]  then line << "\xE2\x96\x88"  # Full Block U+2588
+    in [true,  false] then line << "\xE2\x96\x80"  # Upper Half Block U+2580
+    in [false, true]  then line << "\xE2\x96\x84"  # Lower Half Block U+2584
+    else                   line << " "
+    end
+    i += 1
+  end
+  puts line
+end
+```
+
+Each extracted slice is a plain `String`, so `bit_at`, `each_bit`, `popcount`, and all
+other bit methods apply directly — no intermediate conversion or unpacking step required.
+This is what makes the API worthwhile: the same tool that reads Arrow validity bitmaps
+also decodes packed sensor frames, with no new types and no extra allocation beyond the
+slice strings themselves.
 
 ---
 

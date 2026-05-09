@@ -2,32 +2,41 @@ prelude: |
   $LOAD_PATH.unshift File.expand_path('lib')
   require 'string_bits'
   srand(42)
-  GLYPH_W     = 8
-  GLYPH_H     = 16
-  GLYPH_BITS  = 128
-  SCREEN_W    = 16_000
-  FONT        = Random.bytes(4096)
-  FRAMEBUFFER = (0.chr * (SCREEN_W * GLYPH_H)).b
-  TEXT        = Random.bytes(2_000)
+  BITLEN = 12
+  # 30_000 bytes = 10_000 sample pairs; every 3 bytes holds two 12-bit values
+  DATA = Random.bytes(30_000)
 
 benchmark:
   baseline: |
-    TEXT.each_byte.with_index do |code, char_idx|
-      x_base = char_idx * GLYPH_W
-      base   = code * GLYPH_H
-      GLYPH_H.times do |row|
-        byte    = FONT.getbyte(base + row)
-        row_off = row * SCREEN_W + x_base
-        GLYPH_W.times do |col|
-          FRAMEBUFFER.setbyte(row_off + col, 1) if (byte >> col) & 1 == 1
-        end
+    result = +""
+    n = DATA.bytesize / 3
+    n.times do |i|
+      b0 = DATA.getbyte(i * 3)
+      b1 = DATA.getbyte(i * 3 + 1)
+      b2 = DATA.getbyte(i * 3 + 2)
+      v0 = b0 | ((b1 & 0x0F) << 8)
+      v1 = (b1 >> 4) | (b2 << 4)
+      BITLEN.times do |j|
+        upper = (v0 >> j) & 1
+        lower = (v1 >> j) & 1
+        result << if    upper == 1 && lower == 1 then "\xE2\x96\x88"
+                  elsif upper == 1               then "\xE2\x96\x80"
+                  elsif              lower == 1  then "\xE2\x96\x84"
+                  else                                " "
+                  end
       end
     end
+    result
   string_bits: |
-    TEXT.each_byte.with_index do |code, char_idx|
-      x_base = char_idx * GLYPH_W
-      glyph  = FONT.bit_slice(code * GLYPH_BITS, GLYPH_BITS)
-      glyph.each_set_bit(order: :lsb) do |n|
-        FRAMEBUFFER.setbyte(n / GLYPH_W * SCREEN_W + x_base + n % GLYPH_W, 1)
+    result = +""
+    DATA.each_bit_slice(BITLEN, planes: 2, order: :lsb) do |plane0, plane1|
+      BITLEN.times do |j|
+        result << case [plane0.bit_at(j), plane1.bit_at(j)]
+                  in [true,  true]  then "\xE2\x96\x88"
+                  in [true,  false] then "\xE2\x96\x80"
+                  in [false, true]  then "\xE2\x96\x84"
+                  else                   " "
+                  end
       end
     end
+    result
