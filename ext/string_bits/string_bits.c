@@ -976,6 +976,225 @@ rb_str_each_run(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
+/* multi-bit mutation ------------------------------------------------------ */
+
+/*
+ * bit_copy_core: copy `length` bits from src[src_bit_off] to dst[dst_bit_off].
+ *
+ * Both offsets are in the LSB-first flat bit numbering used throughout
+ * string-bits.  The routine does not resize dst; the caller must ensure
+ * dst has enough bytes.
+ *
+ * Algorithm:
+ *   1. Extract the src bits into a small aligned tmp buffer (identical to the
+ *      bit_slice read path).
+ *   2. Write tmp into dst with shift/mask merge (handles the unaligned case).
+ *
+ * Porting to Ruby Core:
+ *   1. Move alongside bit_slice in string.c.
+ *   2. Share the extract loop with rb_str_bit_slice via ebs_extract.
+ *   3. Remove `static`.
+ */
+static void
+bit_copy_core(unsigned char *dst, long dst_bit_off,
+              const unsigned char *src, long src_len_bytes,
+              long src_bit_off, long length)
+{
+    if (length == 0) return;
+    long out_bytes = (length + 7) >> 3;
+
+    unsigned char  stack_tmp[256];
+    unsigned char *tmp = (out_bytes <= (long)sizeof(stack_tmp))
+                         ? stack_tmp
+                         : (unsigned char *)ruby_xmalloc(out_bytes);
+
+    /* Step 1: extract src bits into tmp (aligned, zero-padded tail) */
+    {
+        long src_byte_off = src_bit_off >> 3;
+        int  src_shift    = (int)(src_bit_off & 7);
+        if (src_shift == 0) {
+            memcpy(tmp, src + src_byte_off, out_bytes);
+        }
+        else {
+            int anti = 8 - src_shift;
+            for (long i = 0; i < out_bytes; i++) {
+                unsigned char lo = src[src_byte_off + i];
+                unsigned char hi = (src_byte_off + i + 1 < src_len_bytes)
+                                   ? src[src_byte_off + i + 1] : 0;
+                tmp[i] = (unsigned char)((lo >> src_shift) | (hi << anti));
+            }
+        }
+        int tail = (int)(length & 7);
+        if (tail) tmp[out_bytes - 1] &= (unsigned char)((1u << tail) - 1);
+    }
+
+    /* Step 2: write aligned tmp into dst at dst_bit_off */
+    {
+        long dst_byte_off = dst_bit_off >> 3;
+        int  dst_shift    = (int)(dst_bit_off & 7);
+
+        if (dst_shift == 0) {
+            long full = length >> 3;
+            int  tail = (int)(length & 7);
+            memcpy(dst + dst_byte_off, tmp, full);
+            if (tail) {
+                unsigned char mask = (unsigned char)((1u << tail) - 1);
+                dst[dst_byte_off + full] =
+                    (dst[dst_byte_off + full] & (unsigned char)~mask)
+                    | (tmp[full] & mask);
+            }
+        }
+        else {
+            int  anti  = 8 - dst_shift;
+            long n_dst = ((dst_bit_off + length - 1) >> 3) - dst_byte_off + 1;
+
+            for (long i = 0; i < n_dst; i++) {
+                long byte_base = (dst_byte_off + i) * 8;
+                long wstart = dst_bit_off > byte_base ? dst_bit_off - byte_base : 0;
+                long wend   = (dst_bit_off + length - 1 < byte_base + 7)
+                              ? dst_bit_off + length - 1 - byte_base : 7;
+                unsigned char wmask =
+                    (unsigned char)(((1u << (wend + 1)) - 1) ^ ((1u << wstart) - 1));
+
+                /* lo_t: high bits of the previous tmp byte spill into this dst byte */
+                unsigned char lo_t = (i > 0 && i - 1 < out_bytes) ? tmp[i - 1] : 0;
+                /* hi_t: low bits of the current tmp byte fill the upper part */
+                unsigned char hi_t = (i < out_bytes) ? tmp[i] : 0;
+                unsigned char nv = (unsigned char)((lo_t >> anti) | (hi_t << dst_shift));
+                dst[dst_byte_off + i] =
+                    (dst[dst_byte_off + i] & (unsigned char)~wmask) | (nv & wmask);
+            }
+        }
+    }
+
+    if (tmp != stack_tmp) ruby_xfree(tmp);
+}
+
+/* String#bit_splice(bit_index, bit_length, str) -> self
+ * String#bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self
+ * String#bit_splice(range, str) -> self
+ * String#bit_splice(range, str, str_range) -> self
+ *
+ * Writes bits from str into self at bit-level granularity.  The inverse of
+ * bit_slice: where bit_slice reads a sub-sequence of bits, bit_splice writes one.
+ *
+ * The destination and source bit lengths must be equal; bit_splice does not
+ * resize self (sub-byte resize is undefined).  This mirrors the constraint that
+ * bytesplice imposes when the replacement has the same byte length.
+ *
+ * Negative indices count backward from the end, exactly as in bytesplice.
+ * Returns self.
+ *
+ * Porting to Ruby Core:
+ *   1. Move to string.c; register in Init_String().
+ *   2. Use rb_str_modify_expand if resize support is ever added.
+ *   3. bit_copy_core moves with it; share ebs_extract with bit_slice.
+ */
+static VALUE
+rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
+{
+    long dst_bit_off, dst_bit_len;
+    long src_bit_off, src_bit_len;
+    VALUE str;
+    long dst_total = RSTRING_LEN(self) * 8;
+
+    if (argc == 2 && rb_obj_is_kind_of(argv[0], rb_cRange)) {
+        /* bit_splice(range, str) */
+        long beg, len;
+        rb_range_beg_len(argv[0], &beg, &len, dst_total, 1);
+        dst_bit_off = beg;
+        dst_bit_len = len;
+        str = argv[1];
+        Check_Type(str, T_STRING);
+        src_bit_off = 0;
+        src_bit_len = dst_bit_len; /* read exactly dst_bit_len bits from str[0] */
+    }
+    else if (argc == 3 && rb_obj_is_kind_of(argv[0], rb_cRange)) {
+        /* bit_splice(range, str, str_range) */
+        long beg, len;
+        rb_range_beg_len(argv[0], &beg, &len, dst_total, 1);
+        dst_bit_off = beg;
+        dst_bit_len = len;
+        str = argv[1];
+        Check_Type(str, T_STRING);
+        if (!rb_obj_is_kind_of(argv[2], rb_cRange)) {
+            rb_raise(rb_eTypeError, "third argument must be a Range");
+        }
+        long src_total = RSTRING_LEN(str) * 8;
+        rb_range_beg_len(argv[2], &beg, &len, src_total, 1);
+        src_bit_off = beg;
+        src_bit_len = len;
+    }
+    else if (argc == 3) {
+        /* bit_splice(bit_index, bit_length, str) */
+        if (!rb_integer_type_p(argv[0]) || !rb_integer_type_p(argv[1])) {
+            rb_raise(rb_eTypeError, "bit index and length must be integers");
+        }
+        dst_bit_off = NUM2LONG(argv[0]);
+        dst_bit_len = NUM2LONG(argv[1]);
+        if (dst_bit_off < 0) dst_bit_off += dst_total;
+        str = argv[2];
+        Check_Type(str, T_STRING);
+        src_bit_off = 0;
+        src_bit_len = dst_bit_len; /* read exactly dst_bit_len bits from str[0] */
+    }
+    else if (argc == 5) {
+        /* bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) */
+        if (!rb_integer_type_p(argv[0]) || !rb_integer_type_p(argv[1]) ||
+            !rb_integer_type_p(argv[3]) || !rb_integer_type_p(argv[4])) {
+            rb_raise(rb_eTypeError, "bit indices and lengths must be integers");
+        }
+        dst_bit_off = NUM2LONG(argv[0]);
+        dst_bit_len = NUM2LONG(argv[1]);
+        if (dst_bit_off < 0) dst_bit_off += dst_total;
+        str = argv[2];
+        Check_Type(str, T_STRING);
+        long src_total = RSTRING_LEN(str) * 8;
+        src_bit_off = NUM2LONG(argv[3]);
+        src_bit_len = NUM2LONG(argv[4]);
+        if (src_bit_off < 0) src_bit_off += src_total;
+    }
+    else {
+        rb_raise(rb_eArgError,
+                 "wrong number of arguments (given %d, expected 2, 3, or 5)", argc);
+    }
+
+    if (dst_bit_off < 0 || dst_bit_len < 0 || dst_bit_off + dst_bit_len > dst_total) {
+        rb_raise(rb_eIndexError,
+                 "bit_splice: destination range [%ld, %ld] out of bounds (total %ld bits)",
+                 dst_bit_off, dst_bit_len, dst_total);
+    }
+
+    long src_total_bits = RSTRING_LEN(str) * 8;
+    if (src_bit_off < 0 || src_bit_len < 0 || src_bit_off + src_bit_len > src_total_bits) {
+        rb_raise(rb_eIndexError,
+                 "bit_splice: source range [%ld, %ld] out of bounds (total %ld bits)",
+                 src_bit_off, src_bit_len, src_total_bits);
+    }
+
+    if (dst_bit_len != src_bit_len) {
+        rb_raise(rb_eArgError,
+                 "bit_splice: destination length (%ld) must equal source length (%ld)",
+                 dst_bit_len, src_bit_len);
+    }
+
+    if (dst_bit_len == 0) return self;
+
+    /* Guard against self-aliasing: duplicate src before modifying self */
+    VALUE src_str = (str == self) ? rb_str_dup(str) : str;
+
+    rb_str_modify(self);
+
+    unsigned char       *dst          = (unsigned char *)RSTRING_PTR(self);
+    const unsigned char *src          = (const unsigned char *)RSTRING_PTR(src_str);
+    long                 src_len_bytes = RSTRING_LEN(src_str);
+
+    bit_copy_core(dst, dst_bit_off, src, src_len_bytes, src_bit_off, dst_bit_len);
+
+    RB_GC_GUARD(src_str);
+    return self;
+}
+
 /* Array#bitmask and Array#bitmask! --------------------------------------- */
 
 /*
@@ -1126,6 +1345,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "each_set_bit",      rb_str_each_set_bit,     -1);
     rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,         2);
+    rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
     rb_define_method(rb_cString, "count_run",         rb_str_count_run,         1);
     rb_define_method(rb_cString, "each_run",          rb_str_each_run,         -1);

@@ -12,6 +12,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | iterate bits | `each_bit`, `bits` | yes |
 | iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes |
 | extract | `bit_slice` | no |
+| multi-bit mutation | `bit_splice` | yes |
 | packed bit-field iteration | `each_bit_slice` | no |
 | run-length iteration | `each_run`, `count_run` | yes |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes |
@@ -209,6 +210,61 @@ Apache Arrow idiom — normalize a non-byte-aligned validity bitmap for IPC seri
 ```ruby
 # Arrow in-memory slice has bit offset 5; IPC requires offset 0
 ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
+```
+
+---
+
+#### `bit_splice(bit_index, bit_length, str) -> self`
+#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
+#### `bit_splice(range, str) -> self`
+#### `bit_splice(range, str, str_range) -> self`
+
+The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`. The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
+
+`bit_splice` does not resize `self` — the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
+
+Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg and 2-arg forms, `bit_length` bits are read from the beginning of `str`. In the 5-arg form, the exact source sub-range is given explicitly.
+
+```ruby
+buf = +"\x00\x00"
+
+# 3-arg integer form: write bits 0-7 of "\xFF" into bits 0-7 of buf
+buf.bit_splice(0, 8, "\xFF")      #=> buf is "\xFF\x00"
+
+# write 4 bits starting at a non-byte-aligned position
+buf.bit_splice(4, 4, "\x0A")     # 0x0A = 0b00001010; bits 0-3 = 1010
+# bits 4-7 of buf[0] become 1010 => 0b10101111 = 0xAF
+# buf is "\xAF\x00"
+
+# 5-arg form: copy bits 4-7 of src into bits 0-3 of buf
+src = "\xAA"   # 0b10101010
+buf.bit_splice(0, 4, src, 4, 4)
+# src bits 4-7 = 1010; written into buf bits 0-3
+
+# range form
+buf.bit_splice(0..7, "\x00")     # same as bit_splice(0, 8, "\x00")
+buf.bit_splice(0..7, src, 0..7)  # copy first byte of src into first byte of buf
+```
+
+Roundtrip symmetry with `bit_slice`:
+
+```ruby
+src = Random.bytes(8)
+# Extract 12 bits from a non-byte-aligned position
+slice = src.bit_slice(4, 12)
+
+# Write them back into a zero buffer at the same position
+buf = ("\x00" * src.bytesize).b
+buf.bit_splice(4, 12, slice)
+
+buf.bit_slice(4, 12) == slice   #=> true
+```
+
+Apache Arrow idiom — overwrite a sub-range of a validity bitmap in place:
+
+```ruby
+# Replace elements 40..79 of the bitmap with a new validity mask
+bitmap.bit_splice(40, 40, new_mask)
 ```
 
 ---
