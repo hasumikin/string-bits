@@ -21,7 +21,7 @@ benchmark:
     end
     runs << [current, count] unless current.nil?
     runs
-  string_bits: |
+  each_bit: |
     runs = []; current = nil; count = 0
     DATA.each_bit(order: :lsb) do |b|
       if b == current
@@ -34,3 +34,5 @@ benchmark:
     end
     runs << [current, count] unless current.nil?
     runs
+  each_run: |
+    DATA.each_run(order: :lsb).to_a

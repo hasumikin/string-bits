@@ -13,6 +13,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes |
 | extract | `bit_slice` | no |
 | packed bit-field iteration | `each_bit_slice` | no |
+| run-length iteration | `each_run`, `count_run` | yes |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no |
@@ -209,6 +210,85 @@ Apache Arrow idiom — normalize a non-byte-aligned validity bitmap for IPC seri
 # Arrow in-memory slice has bit offset 5; IPC requires offset 0
 ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 ```
+
+---
+
+#### `count_run(pos) -> Integer`
+
+Returns the length of the consecutive run of identical bits that starts at flat position `pos`. The bit value at `pos` determines what is counted. Returns 0 when `pos` is out of range.
+
+Equivalent to Gauche Scheme's `bitvector-count-run`, with the bit value inferred from the string rather than passed explicitly.
+
+```ruby
+data = "\xF0"   # 11110000
+
+data.count_run(0)  #=> 4  (bits 0-3 are 0)
+data.count_run(4)  #=> 4  (bits 4-7 are 1)
+
+data = "\xFF\xFF\x00"
+data.count_run(0)  #=> 16 (16 ones before the first zero)
+data.count_run(16) #=> 8  (8 zeros from bit 16)
+data.count_run(24) #=> 0  (out of range)
+```
+
+Building block for position-driven iteration (Gauche style):
+
+```ruby
+pos = 0
+total = data.bytesize * 8
+runs = []
+while pos < total
+  len = data.count_run(pos)
+  runs << [data.bit_at(pos), len]
+  pos += len
+end
+```
+
+---
+
+#### `each_run(order: :lsb) { |bit, len| } -> self`
+#### `each_run(order: :lsb) -> Enumerator`
+
+Yields `(bit, run_length)` pairs for each consecutive run of identical bits. Run-length boundary detection and counting happen entirely in C — no Ruby-level `current`/`count` state machine is needed.
+
+The key insight from Gauche's `bitvector-count-run`: instead of visiting every bit, use `__builtin_ctzll` to skip up to 64 identical bits in a single instruction per 8-byte word, making the inner loop O(run\_length / 64) rather than O(run\_length).
+
+```ruby
+"\xFF\x00".each_run.to_a
+#=> [[true, 8], [false, 8]]
+
+"\xAA".each_run.to_a
+#=> [[false,1],[true,1],[false,1],[true,1],[false,1],[true,1],[false,1],[true,1]]
+
+"\xFF\xFF\xFF".each_run.to_a
+#=> [[true, 24]]
+```
+
+RLE encoding — the primary motivation:
+
+```ruby
+# with each_bit (Ruby-level state machine, one yield per bit)
+runs = []; current = nil; count = 0
+data.each_bit(order: :lsb) do |b|
+  if b == current then count += 1
+  else runs << [current, count] unless current.nil?; current = b; count = 1
+  end
+end
+runs << [current, count] unless current.nil?
+
+# with each_run (boundary detection in C, one yield per run)
+runs = data.each_run(order: :lsb).to_a
+```
+
+Performance characteristics for random data (~50% density, average run length ≈ 2):
+
+| | Ruby | YJIT |
+|---|---|---|
+| baseline (byte loop) | 1.0x | 1.0x |
+| `each_bit` + Ruby state machine | 1.4x | 0.8x |
+| `each_run` | **4.3x** | **1.5x** |
+
+For structured data with longer runs (sparse validity bitmaps, sensor bursts, run-length compressed streams) the speedup is proportional to average run length — a 64-bit run of zeros is resolved in a single `ctzll` call.
 
 ---
 

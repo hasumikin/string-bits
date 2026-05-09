@@ -776,6 +776,206 @@ rb_str_each_bit_slice(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
+/* run-length iteration ---------------------------------------------------- */
+
+/*
+ * count_run_lsb: count consecutive bits equal to `target` starting at flat
+ * position `pos` (LSB-first).  Uses ctz / ctzll to skip bits in bulk:
+ *   - partial first byte: ctz on the inverted masked nibble
+ *   - full 64-bit words (LE): ctzll on the inverted word (64 bits per step)
+ *   - remaining bytes: ctz on the inverted byte
+ *
+ * Porting to Ruby Core:
+ *   1. Move to string.c alongside bit_at and each_bit.
+ *   2. Share sb_ctz8 / sb_ctzll with the existing set-bit helpers.
+ */
+static long
+count_run_lsb(const unsigned char *src, long src_len, long pos, int target)
+{
+    long max_run  = src_len * 8 - pos;
+    long byte_idx = pos >> 3;
+    int  bit_off  = pos & 7;
+    long count    = 0;
+
+    /* partial first byte: shift pos to bit 0, mask remaining bits */
+    {
+        int          remaining = 8 - bit_off;
+        unsigned int b         = (unsigned int)src[byte_idx] >> bit_off;
+        if (!target) b         = ~b;
+        unsigned int mask      = (1u << remaining) - 1;
+        b                     &= mask;
+        unsigned int inv       = (~b) & mask;
+        int run                = (inv == 0) ? remaining : sb_ctz8(inv);
+        count                 += run;
+        byte_idx++;
+        if (run < remaining)
+            return count < max_run ? count : max_run;
+    }
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    /* full 8-byte words: skip 64 identical bits per iteration */
+    while (byte_idx + 8 <= src_len) {
+        uint64_t word;
+        memcpy(&word, src + byte_idx, 8);
+        if (!target) word = ~word;
+        if (word == UINT64_MAX) {
+            count    += 64;
+            byte_idx += 8;
+        } else {
+            count += sb_ctzll(~word);
+            return count < max_run ? count : max_run;
+        }
+    }
+#endif
+
+    /* remaining bytes (< 8) */
+    while (byte_idx < src_len) {
+        unsigned int b = (unsigned int)src[byte_idx];
+        if (!target) b = ~b;
+        b &= 0xFF;
+        if (b == 0xFF) {
+            count += 8;
+            byte_idx++;
+        } else {
+            count += sb_ctz8(~b);
+            return count < max_run ? count : max_run;
+        }
+    }
+
+    return count < max_run ? count : max_run;
+}
+
+/*
+ * count_run_msb: count consecutive bits equal to `target` from `pos` going
+ * downward (toward bit 0).  Uses sb_highest_bit8 (clz-based) per byte.
+ */
+static long
+count_run_msb(const unsigned char *src, long pos, int target)
+{
+    long max_run  = pos + 1;
+    long byte_idx = pos >> 3;
+    int  bit_off  = pos & 7;
+    long count    = 0;
+
+    /* partial first byte: align pos to bit 7 (MSB), mask upper garbage */
+    {
+        int          remaining = bit_off + 1;
+        unsigned int b         = ((unsigned int)src[byte_idx] << (7 - bit_off)) & 0xFF;
+        if (!target) b         = (~b) & 0xFF;
+        int run;
+        if (b == 0xFF) {
+            run = remaining;
+        } else {
+            /* leading ones from MSB = 7 - position_of_highest_zero */
+            run = 7 - sb_highest_bit8((~b) & 0xFF);
+        }
+        count += run;
+        byte_idx--;
+        if (run < remaining)
+            return count < max_run ? count : max_run;
+    }
+
+    /* remaining full bytes, scanning from high to low */
+    while (byte_idx >= 0) {
+        unsigned int b = (unsigned int)src[byte_idx];
+        if (!target) b = (~b) & 0xFF;
+        else         b &= 0xFF;
+        if (b == 0xFF) {
+            count += 8;
+            byte_idx--;
+        } else {
+            /* (~b) & 0xFF is non-zero because b != 0xFF */
+            count += 7 - sb_highest_bit8((~b) & 0xFF);
+            return count < max_run ? count : max_run;
+        }
+    }
+
+    return count < max_run ? count : max_run;
+}
+
+/* String#count_run(pos) -> Integer
+ *
+ * Returns the length of the consecutive run of identical bits that starts at
+ * flat position `pos`.  The bit value at `pos` determines what is counted.
+ * Returns 0 when `pos` is out of range (mirrors bit_at nil behavior).
+ *
+ * Equivalent to Gauche Scheme's (bitvector-count-run bit bvec i), where the
+ * bit value is inferred from the string rather than passed explicitly.
+ *
+ * Uses the same flat LSB-first addressing as bit_at: byte[pos/8] bit pos%8.
+ *
+ * Porting to Ruby Core:
+ *   1. Move to string.c; register in Init_String().
+ *   2. Reuse integer_to_bit_idx for consistent Bignum handling.
+ */
+static VALUE
+rb_str_count_run(VALUE self, VALUE pos_val)
+{
+    if (!rb_integer_type_p(pos_val)) {
+        rb_raise(rb_eTypeError, "position must be an integer");
+    }
+    long pos     = integer_to_bit_idx(pos_val);
+    long src_len = RSTRING_LEN(self);
+    if (pos < 0 || pos >= src_len * 8) return LONG2FIX(0);
+
+    const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+    int target = (src[pos >> 3] >> (pos & 7)) & 1;
+    return LONG2FIX(count_run_lsb(src, src_len, pos, target));
+}
+
+/* String#each_run(order: :lsb) { |bit, len| } -> self
+ * String#each_run(order: :lsb) -> Enumerator
+ *
+ * Yields (bit, run_length) pairs for each consecutive run of identical bits.
+ * Run-length boundary detection and counting happen entirely in C, replacing
+ * the Ruby-level current/count state machine required when using each_bit.
+ *
+ * For random data (~50% density) each_run yields ~half as many times as
+ * each_bit.  For structured data (sparse validity bitmaps, sensor bursts) the
+ * ratio is proportional to the average run length.
+ *
+ * order: :lsb (default) iterates from bit 0 forward.
+ * order: :msb iterates from the last bit downward.
+ *
+ * Porting to Ruby Core:
+ *   1. Move to string.c; register in Init_String().
+ *   2. count_run_lsb / count_run_msb move with it.
+ */
+static VALUE
+rb_str_each_run(int argc, VALUE *argv, VALUE self)
+{
+    RETURN_ENUMERATOR(self, argc, argv);
+
+    int msb_first = parse_order(argc, argv);
+    long src_len  = RSTRING_LEN(self);
+    if (src_len == 0) return self;
+
+    long total_bits = src_len * 8;
+
+    if (!msb_first) {
+        long pos = 0;
+        while (pos < total_bits) {
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            int bit  = (src[pos >> 3] >> (pos & 7)) & 1;
+            long run = count_run_lsb(src, src_len, pos, bit);
+            rb_yield_values(2, bit ? Qtrue : Qfalse, LONG2FIX(run));
+            pos += run;
+        }
+    }
+    else {
+        long pos = total_bits - 1;
+        while (pos >= 0) {
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            int bit  = (src[pos >> 3] >> (pos & 7)) & 1;
+            long run = count_run_msb(src, pos, bit);
+            rb_yield_values(2, bit ? Qtrue : Qfalse, LONG2FIX(run));
+            pos -= run;
+        }
+    }
+
+    return self;
+}
+
 /* Array#bitmask and Array#bitmask! --------------------------------------- */
 
 /*
@@ -927,6 +1127,8 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,         2);
     rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
+    rb_define_method(rb_cString, "count_run",         rb_str_count_run,         1);
+    rb_define_method(rb_cString, "each_run",          rb_str_each_run,         -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,           1);
     rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,         1);
     rb_define_method(rb_cString, "flip_bit",          rb_str_flip_bit,          1);
