@@ -15,9 +15,11 @@ prelude: |
 benchmark:
   baseline: |
     sum = 0
-    COL.each { |v| sum += v if v }
+    data.each { |v| sum += v if v }
     sum
   string_bits: |
     sum = 0
-    BITMAP.each_set_bit(order: :lsb) { |i| sum += COL[i] }
+    BITMAP.each_set_bit(order: :lsb) { |i| sum += data[i] }
     sum
+  arrow: |
+    COL.sum
