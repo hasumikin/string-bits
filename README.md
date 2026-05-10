@@ -157,14 +157,6 @@ data.each_set_bit do |n|
 end
 ```
 
-Apache Arrow idiom --- iterate over valid element indices:
-
-```ruby
-validity_bitmap.each_set_bit do |i|
-  process(column_data, i)
-end
-```
-
 ---
 
 #### `set_bit_positions(order: :lsb) -> Array`
