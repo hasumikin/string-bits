@@ -6,19 +6,19 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 
 ## Proposed Methods
 
-| category | methods | zero-copy |
-|----------|---------|-----------|
-| read | `bit_at`, `popcount` | yes |
-| iterate bits | `each_bit`, `bits` | yes |
-| iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes |
-| extract | `bit_slice` | no |
-| multi-bit mutation | `bit_splice` | yes |
-| packed bit-field iteration | `each_bit_slice` | no |
-| run-length iteration | `each_run`, `count_run` | yes |
-| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes |
-| bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes |
-| bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no |
-| Array validity mask | `Array#mask`, `Array#mask!` | yes (`!`) / no |
+| category | methods | zero-copy | accept `order:` keyword |
+|----------|---------|-----------|----------|
+| read | `bit_at`, `popcount` | yes | no |
+| iterate bits | `each_bit`, `bits` | yes | yes |
+| iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes | yes |
+|  extract | `bit_slice` | no | no |
+| multi-bit mutation | `bit_splice` | yes | no |
+| packed bit-field iteration | `each_bit_slice` | no | yes |
+| run-length iteration | `each_bit_run`, `bit_count_run` | yes | yes |
+| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | no |
+| bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes | no |
+| bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no | no |
+| Array validity mask | `Array#mask`, `Array#mask!` | yes (`!`) / no | yes |
 
 <details>
 
@@ -269,30 +269,30 @@ bitmap.bit_splice(40, 40, new_mask)
 
 ---
 
-#### `count_run(pos, bit, order: :lsb) -> Integer`
+#### `bit_count_run(pos, bit, order: :lsb) -> Integer`
 
 Returns the length of the consecutive run of `bit` starting at flat position `pos`. Returns 0 when `pos` is out of range or the bit at `pos` does not equal `bit`.
 
-`bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are aliases for `0`/`1`, matching the values yielded by `each_run`).
+`bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are aliases for `0`/`1`, matching the values yielded by `each_bit_run`).
 
-`order: :lsb` (default) counts forward toward higher bit indices. `order: :msb` counts backward toward lower bit indices — mirrors `each_run(order: :msb)`.
+`order: :lsb` (default) counts forward toward higher bit indices. `order: :msb` counts backward toward lower bit indices — mirrors `each_bit_run(order: :msb)`.
 
 Equivalent to Gauche Scheme's `bitvector-count-run`.
 
 ```ruby
 data = "\xF0"   # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
-data.count_run(0, 0)  #=> 4  (4 zeros forward from bit 0)
-data.count_run(4, 1)  #=> 4  (4 ones forward from bit 4)
-data.count_run(0, 1)  #=> 0  (bit 0 is not 1)
+data.bit_count_run(0, 0)  #=> 4  (4 zeros forward from bit 0)
+data.bit_count_run(4, 1)  #=> 4  (4 ones forward from bit 4)
+data.bit_count_run(0, 1)  #=> 0  (bit 0 is not 1)
 
-data.count_run(3, 0, order: :msb)  #=> 4  (4 zeros backward from bit 3)
-data.count_run(7, 1, order: :msb)  #=> 4  (4 ones backward from bit 7)
+data.bit_count_run(3, 0, order: :msb)  #=> 4  (4 zeros backward from bit 3)
+data.bit_count_run(7, 1, order: :msb)  #=> 4  (4 ones backward from bit 7)
 
 data = "\xFF\xFF\x00"
-data.count_run(0,  1) #=> 16 (16 ones forward from bit 0)
-data.count_run(16, 0) #=> 8  (8 zeros forward from bit 16)
-data.count_run(24, 0) #=> 0  (out of range)
+data.bit_count_run(0,  1) #=> 16 (16 ones forward from bit 0)
+data.bit_count_run(16, 0) #=> 8  (8 zeros forward from bit 16)
+data.bit_count_run(24, 0) #=> 0  (out of range)
 ```
 
 Building block for position-driven iteration (Gauche style):
@@ -303,7 +303,7 @@ total = data.bytesize * 8
 runs = []
 while pos < total
   bit = data.bit_at(pos)
-  len = data.count_run(pos, bit)
+  len = data.bit_count_run(pos, bit)
   runs << [bit, len]
   pos += len
 end
@@ -311,21 +311,21 @@ end
 
 ---
 
-#### `each_run(order: :lsb) { |bit, len| } -> self`
-#### `each_run(order: :lsb) -> Enumerator`
+#### `each_bit_run(order: :lsb) { |bit, len| } -> self`
+#### `each_bit_run(order: :lsb) -> Enumerator`
 
 Yields `(bit, run_length)` pairs for each consecutive run of identical bits. Run-length boundary detection and counting happen entirely in C — no Ruby-level `current`/`count` state machine is needed.
 
 The key insight from Gauche's `bitvector-count-run`: instead of visiting every bit, use `__builtin_ctzll` to skip up to 64 identical bits in a single instruction per 8-byte word, making the inner loop O(run\_length / 64) rather than O(run\_length).
 
 ```ruby
-"\xFF\x00".each_run.to_a
+"\xFF\x00".each_bit_run.to_a
 #=> [[true, 8], [false, 8]]
 
-"\xAA".each_run.to_a
+"\xAA".each_bit_run.to_a
 #=> [[false,1],[true,1],[false,1],[true,1],[false,1],[true,1],[false,1],[true,1]]
 
-"\xFF\xFF\xFF".each_run.to_a
+"\xFF\xFF\xFF".each_bit_run.to_a
 #=> [[true, 24]]
 ```
 
@@ -341,8 +341,8 @@ data.each_bit(order: :lsb) do |b|
 end
 runs << [current, count] unless current.nil?
 
-# with each_run (boundary detection in C, one yield per run)
-runs = data.each_run(order: :lsb).to_a
+# with each_bit_run (boundary detection in C, one yield per run)
+runs = data.each_bit_run(order: :lsb).to_a
 ```
 
 Performance characteristics for random data (~50% density, average run length ≈ 2):
@@ -351,7 +351,7 @@ Performance characteristics for random data (~50% density, average run length �
 |---|---|---|
 | baseline (byte loop) | 1.0x | 1.0x |
 | `each_bit` + Ruby state machine | 1.4x | 0.8x |
-| `each_run` | **4.3x** | **1.5x** |
+| `each_bit_run` | **4.3x** | **1.5x** |
 
 For structured data with longer runs (sparse validity bitmaps, sensor bursts, run-length compressed streams) the speedup is proportional to average run length — a 64-bit run of zeros is resolved in a single `ctzll` call.
 

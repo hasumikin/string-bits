@@ -120,7 +120,7 @@ measure("Pure Ruby: manual byte loop + conditional push") {
 # RLE_DATA: validity-bitmap pattern (~1,960 runs over ~100KB).
 # Allocations are dominated by [bit, len] pairs pushed to the result array,
 # so each approach allocates proportionally to run count, not bit count.
-# each_run's advantage over each_bit is CPU time (fewer block calls), not allocs.
+# each_bit_run's advantage over each_bit is CPU time (fewer block calls), not allocs.
 section "run-length encoding -- validity bitmap (~100KB, ~1,960 runs)"
 measure("Pure Ruby: each_byte + bit loop") {
   runs = []; current = nil; count = 0
@@ -145,9 +145,9 @@ measure("gem:       each_bit { block }") {
   runs << [current, count] unless current.nil?
   runs
 }
-measure("gem:       each_run { block }") {
+measure("gem:       each_bit_run { block }") {
   runs = []
-  RLE_DATA.each_run { |bit, len| runs << [bit, len] }
+  RLE_DATA.each_bit_run { |bit, len| runs << [bit, len] }
   runs
 }
 

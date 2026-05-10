@@ -34,5 +34,5 @@ benchmark:
     end
     runs << [current, count] unless current.nil?
     runs
-  each_run: |
-    DATA.each_run(order: :lsb).to_a
+  each_bit_run: |
+    DATA.each_bit_run(order: :lsb).to_a

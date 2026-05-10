@@ -893,14 +893,14 @@ count_run_msb(const unsigned char *src, long pos, int target)
     return count < max_run ? count : max_run;
 }
 
-/* String#count_run(pos, bit, order: :lsb) -> Integer
+/* String#bit_count_run(pos, bit, order: :lsb) -> Integer
  *
  * Returns the length of the consecutive run of `bit` starting at flat
  * position `pos`.  Returns 0 when `pos` is out of range or the bit at `pos`
  * does not equal `bit`.
  *
  * `bit` accepts 0, 1, false, or true (false/true are aliases for 0/1,
- * matching the values yielded by each_run).
+ * matching the values yielded by each_bit_run).
  *
  * order: :lsb (default) counts forward (toward higher bit indices).
  * order: :msb counts backward (toward lower bit indices).
@@ -914,7 +914,7 @@ count_run_msb(const unsigned char *src, long pos, int target)
  *   2. Reuse integer_to_bit_idx for consistent Bignum handling.
  */
 static VALUE
-rb_str_count_run(int argc, VALUE *argv, VALUE self)
+rb_str_bit_count_run(int argc, VALUE *argv, VALUE self)
 {
     VALUE pos_val, bit_val, opts;
     rb_scan_args(argc, argv, "2:", &pos_val, &bit_val, &opts);
@@ -948,14 +948,14 @@ rb_str_count_run(int argc, VALUE *argv, VALUE self)
     return LONG2FIX(count_run_lsb(src, src_len, pos, target));
 }
 
-/* String#each_run(order: :lsb) { |bit, len| } -> self
- * String#each_run(order: :lsb) -> Enumerator
+/* String#each_bit_run(order: :lsb) { |bit, len| } -> self
+ * String#each_bit_run(order: :lsb) -> Enumerator
  *
  * Yields (bit, run_length) pairs for each consecutive run of identical bits.
  * Run-length boundary detection and counting happen entirely in C, replacing
  * the Ruby-level current/count state machine required when using each_bit.
  *
- * For random data (~50% density) each_run yields ~half as many times as
+ * For random data (~50% density) each_bit_run yields ~half as many times as
  * each_bit.  For structured data (sparse validity bitmaps, sensor bursts) the
  * ratio is proportional to the average run length.
  *
@@ -967,7 +967,7 @@ rb_str_count_run(int argc, VALUE *argv, VALUE self)
  *   2. count_run_lsb / count_run_msb move with it.
  */
 static VALUE
-rb_str_each_run(int argc, VALUE *argv, VALUE self)
+rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
@@ -1372,8 +1372,8 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,         2);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
-    rb_define_method(rb_cString, "count_run",         rb_str_count_run,        -1);
-    rb_define_method(rb_cString, "each_run",          rb_str_each_run,         -1);
+    rb_define_method(rb_cString, "bit_count_run",     rb_str_bit_count_run,    -1);
+    rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,           1);
     rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,         1);
     rb_define_method(rb_cString, "flip_bit",          rb_str_flip_bit,          1);
