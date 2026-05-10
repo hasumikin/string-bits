@@ -223,7 +223,7 @@ rb_str_bit_at(VALUE self, VALUE n)
 }
 
 static VALUE
-rb_str_popcount(VALUE self)
+rb_str_bit_count(VALUE self)
 {
     long count = 0;
     long len = RSTRING_LEN(self);
@@ -893,7 +893,7 @@ count_run_msb(const unsigned char *src, long pos, int target)
     return count < max_run ? count : max_run;
 }
 
-/* String#bit_count_run(pos, bit, order: :lsb) -> Integer
+/* String#bit_run_count(pos, bit, order: :lsb) -> Integer
  *
  * Returns the length of the consecutive run of `bit` starting at flat
  * position `pos`.  Returns 0 when `pos` is out of range or the bit at `pos`
@@ -914,7 +914,7 @@ count_run_msb(const unsigned char *src, long pos, int target)
  *   2. Reuse integer_to_bit_idx for consistent Bignum handling.
  */
 static VALUE
-rb_str_bit_count_run(int argc, VALUE *argv, VALUE self)
+rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
 {
     VALUE pos_val, bit_val, opts;
     rb_scan_args(argc, argv, "2:", &pos_val, &bit_val, &opts);
@@ -1364,7 +1364,7 @@ void
 Init_string_bits(void)
 {
     rb_define_method(rb_cString, "bit_at",            rb_str_bit_at,            1);
-    rb_define_method(rb_cString, "popcount",          rb_str_popcount,          0);
+    rb_define_method(rb_cString, "bit_count",         rb_str_bit_count,         0);
     rb_define_method(rb_cString, "each_bit",          rb_str_each_bit,         -1);
     rb_define_method(rb_cString, "bits",              rb_str_bits,             -1);
     rb_define_method(rb_cString, "each_set_bit",      rb_str_each_set_bit,     -1);
@@ -1372,7 +1372,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,         2);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
-    rb_define_method(rb_cString, "bit_count_run",     rb_str_bit_count_run,    -1);
+    rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,           1);
     rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,         1);

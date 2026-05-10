@@ -6,19 +6,27 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 
 ## Proposed Methods
 
-| category | methods | zero-copy | accept `order:` keyword |
+### String class
+
+| category | methods | zero-copy | `order:` keyword param |
 |----------|---------|-----------|----------|
-| read | `bit_at`, `popcount` | yes | no |
+| read | `bit_at`, `bit_count` | yes | no |
 | iterate bits | `each_bit`, `bits` | yes | yes |
 | iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes | yes |
 |  extract | `bit_slice` | no | no |
 | multi-bit mutation | `bit_splice` | yes | no |
 | packed bit-field iteration | `each_bit_slice` | no | yes |
-| run-length iteration | `each_bit_run`, `bit_count_run` | yes | yes |
+| run-length iteration | `each_bit_run`, `bit_run_count` | yes | yes |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | no |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes | no |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no | no |
-| Array validity mask | `Array#mask`, `Array#mask!` | yes (`!`) / no | yes |
+
+### Array class
+
+| category | methods | zero-copy | `order:` keyword param |
+|----------|---------|-----------|----------|
+| Array validity mask (in-place) | `Array#mask!` | yes | yes |
+| Array validity mask | `Array#mask` |  no | yes |
 
 <details>
 
@@ -52,22 +60,22 @@ valid = bitmap.bit_at(i)
 
 ---
 
-#### `popcount -> Integer`
+#### `bit_count -> Integer`
 
 Returns the total number of set bits across the entire string. O(bytesize) — no per-bit branching. The C implementation will use `__builtin_popcount` (GCC/Clang) to map directly to the hardware `POPCNT` instruction where available.
 
 ```ruby
-"\x00".popcount     #=> 0
-"\xFF".popcount     #=> 8
-"\xAA".popcount     #=> 4   # 0b10101010
-"\xFF\xFF".popcount #=> 16
+"\x00".bit_count     #=> 0
+"\xFF".bit_count     #=> 8
+"\xAA".bit_count     #=> 4   # 0b10101010
+"\xFF\xFF".bit_count #=> 16
 ```
 
 Apache Arrow idiom — count valid and null elements:
 
 ```ruby
-valid_count = bitmap.popcount
-null_count  = bitmap.bytesize * 8 - bitmap.popcount
+valid_count = bitmap.bit_count
+null_count  = bitmap.bytesize * 8 - bitmap.bit_count
 ```
 
 ---
@@ -269,7 +277,7 @@ bitmap.bit_splice(40, 40, new_mask)
 
 ---
 
-#### `bit_count_run(pos, bit, order: :lsb) -> Integer`
+#### `bit_run_count(pos, bit, order: :lsb) -> Integer`
 
 Returns the length of the consecutive run of `bit` starting at flat position `pos`. Returns 0 when `pos` is out of range or the bit at `pos` does not equal `bit`.
 
@@ -282,17 +290,17 @@ Equivalent to Gauche Scheme's `bitvector-count-run`.
 ```ruby
 data = "\xF0"   # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
-data.bit_count_run(0, 0)  #=> 4  (4 zeros forward from bit 0)
-data.bit_count_run(4, 1)  #=> 4  (4 ones forward from bit 4)
-data.bit_count_run(0, 1)  #=> 0  (bit 0 is not 1)
+data.bit_run_count(0, 0)  #=> 4  (4 zeros forward from bit 0)
+data.bit_run_count(4, 1)  #=> 4  (4 ones forward from bit 4)
+data.bit_run_count(0, 1)  #=> 0  (bit 0 is not 1)
 
-data.bit_count_run(3, 0, order: :msb)  #=> 4  (4 zeros backward from bit 3)
-data.bit_count_run(7, 1, order: :msb)  #=> 4  (4 ones backward from bit 7)
+data.bit_run_count(3, 0, order: :msb)  #=> 4  (4 zeros backward from bit 3)
+data.bit_run_count(7, 1, order: :msb)  #=> 4  (4 ones backward from bit 7)
 
 data = "\xFF\xFF\x00"
-data.bit_count_run(0,  1) #=> 16 (16 ones forward from bit 0)
-data.bit_count_run(16, 0) #=> 8  (8 zeros forward from bit 16)
-data.bit_count_run(24, 0) #=> 0  (out of range)
+data.bit_run_count(0,  1) #=> 16 (16 ones forward from bit 0)
+data.bit_run_count(16, 0) #=> 8  (8 zeros forward from bit 16)
+data.bit_run_count(24, 0) #=> 0  (out of range)
 ```
 
 Building block for position-driven iteration (Gauche style):
@@ -303,57 +311,11 @@ total = data.bytesize * 8
 runs = []
 while pos < total
   bit = data.bit_at(pos)
-  len = data.bit_count_run(pos, bit)
+  len = data.bit_run_count(pos, bit)
   runs << [bit, len]
   pos += len
 end
 ```
-
----
-
-#### `each_bit_run(order: :lsb) { |bit, len| } -> self`
-#### `each_bit_run(order: :lsb) -> Enumerator`
-
-Yields `(bit, run_length)` pairs for each consecutive run of identical bits. Run-length boundary detection and counting happen entirely in C — no Ruby-level `current`/`count` state machine is needed.
-
-The key insight from Gauche's `bitvector-count-run`: instead of visiting every bit, use `__builtin_ctzll` to skip up to 64 identical bits in a single instruction per 8-byte word, making the inner loop O(run\_length / 64) rather than O(run\_length).
-
-```ruby
-"\xFF\x00".each_bit_run.to_a
-#=> [[true, 8], [false, 8]]
-
-"\xAA".each_bit_run.to_a
-#=> [[false,1],[true,1],[false,1],[true,1],[false,1],[true,1],[false,1],[true,1]]
-
-"\xFF\xFF\xFF".each_bit_run.to_a
-#=> [[true, 24]]
-```
-
-RLE encoding — the primary motivation:
-
-```ruby
-# with each_bit (Ruby-level state machine, one yield per bit)
-runs = []; current = nil; count = 0
-data.each_bit(order: :lsb) do |b|
-  if b == current then count += 1
-  else runs << [current, count] unless current.nil?; current = b; count = 1
-  end
-end
-runs << [current, count] unless current.nil?
-
-# with each_bit_run (boundary detection in C, one yield per run)
-runs = data.each_bit_run(order: :lsb).to_a
-```
-
-Performance characteristics for random data (~50% density, average run length ≈ 2):
-
-| | Ruby | YJIT |
-|---|---|---|
-| baseline (byte loop) | 1.0x | 1.0x |
-| `each_bit` + Ruby state machine | 1.4x | 0.8x |
-| `each_bit_run` | **4.3x** | **1.5x** |
-
-For structured data with longer runs (sparse validity bitmaps, sensor bursts, run-length compressed streams) the speedup is proportional to average run length — a 64-bit run of zeros is resolved in a single `ctzll` call.
 
 ---
 
@@ -429,11 +391,57 @@ data.each_bit_slice(bitlen, planes: 2, order: :lsb) do |plane0, plane1|
 end
 ```
 
-Each extracted slice is a plain `String`, so `bit_at`, `each_bit`, `popcount`, and all
+Each extracted slice is a plain `String`, so `bit_at`, `each_bit`, `bit_count`, and all
 other bit methods apply directly — no intermediate conversion or unpacking step required.
 This is what makes the API worthwhile: the same tool that reads Arrow validity bitmaps
 also decodes packed sensor frames, with no new types and no extra allocation beyond the
 slice strings themselves.
+
+---
+
+#### `each_bit_run(order: :lsb) { |bit, len| } -> self`
+#### `each_bit_run(order: :lsb) -> Enumerator`
+
+Yields `(bit, run_length)` pairs for each consecutive run of identical bits. Run-length boundary detection and counting happen entirely in C — no Ruby-level `current`/`count` state machine is needed.
+
+The key insight from Gauche's `bitvector-count-run`: instead of visiting every bit, use `__builtin_ctzll` to skip up to 64 identical bits in a single instruction per 8-byte word, making the inner loop O(run\_length / 64) rather than O(run\_length).
+
+```ruby
+"\xFF\x00".each_bit_run.to_a
+#=> [[true, 8], [false, 8]]
+
+"\xAA".each_bit_run.to_a
+#=> [[false,1],[true,1],[false,1],[true,1],[false,1],[true,1],[false,1],[true,1]]
+
+"\xFF\xFF\xFF".each_bit_run.to_a
+#=> [[true, 24]]
+```
+
+RLE encoding — the primary motivation:
+
+```ruby
+# with each_bit (Ruby-level state machine, one yield per bit)
+runs = []; current = nil; count = 0
+data.each_bit(order: :lsb) do |b|
+  if b == current then count += 1
+  else runs << [current, count] unless current.nil?; current = b; count = 1
+  end
+end
+runs << [current, count] unless current.nil?
+
+# with each_bit_run (boundary detection in C, one yield per run)
+runs = data.each_bit_run(order: :lsb).to_a
+```
+
+Performance characteristics for random data (~50% density, average run length ≈ 2):
+
+| | Ruby | YJIT |
+|---|---|---|
+| baseline (byte loop) | 1.0x | 1.0x |
+| `each_bit` + Ruby state machine | 1.4x | 0.8x |
+| `each_bit_run` | **4.3x** | **1.5x** |
+
+For structured data with longer runs (sparse validity bitmaps, sensor bursts, run-length compressed streams) the speedup is proportional to average run length — a 64-bit run of zeros is resolved in a single `ctzll` call.
 
 ---
 
@@ -713,7 +721,6 @@ The mutation methods `set_bit(n)`, `clear_bit(n)`, and `flip_bit(n)` use unambig
 | IEEE 802.15.4 / Zigbee | LSB-first | native |
 | PostgreSQL visibility map, ext4 block bitmap | LSB-first | native |
 | Roaring Bitmap (analytics databases) | LSB-first | native |
-| PicoRuby / mruby bitmap font | MSB = leftmost pixel; LSB numbering within each byte | `order: :msb` traversal covers the render direction |
 | RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | position offset conversion needed: `7 - (n % 8) + (n / 8) * 8` |
 | BitTorrent bitfield message | piece 0 = MSB of byte 0 | same offset conversion as RFC |
 | PNG 1/2/4-bit scanlines | MSB = leftmost pixel | same offset conversion as RFC |
@@ -881,7 +888,7 @@ One might expect each method to accept a `byte_offset:` keyword so that a bitmap
 | operation | alternative |
 |-----------|-------------|
 | `bit_at(n)` on a sub-range | encode the offset in `n`: `bit_at(byte_offset * 8 + n)` |
-| `popcount`, `each_bit`, `each_set_bit` | extract once with `byteslice(offset, length)`, then call the method |
+| `bit_count`, `each_bit`, `each_set_bit` | extract once with `byteslice(offset, length)`, then call the method |
 | `bit_and!`, `bit_or!`, `bit_xor!` on a sub-range | use `IO::Buffer` (see below) |
 
 For single-bit access the byte offset is already expressible through `n`. For bulk read-only operations, `byteslice` produces a one-time copy whose cost is negligible compared with the operation itself (a bitmap for one million rows is only 123 KB).

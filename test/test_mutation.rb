@@ -103,7 +103,7 @@ class TestSetClearFlipBit < Minitest::Test
     assert_equal true,  bitmap.bit_at(2)
     assert_equal false, bitmap.bit_at(3)
     assert_equal true,  bitmap.bit_at(4)
-    assert_equal 3, bitmap.popcount
+    assert_equal 3, bitmap.bit_count
   end
 
   def test_set_bit_non_integer_raises_type_error

@@ -49,16 +49,16 @@ puts "Ruby #{RUBY_VERSION} | string-bits #{StringBits::VERSION rescue "dev"}"
 printf "  %-#{COL_LABEL}s  %#{COL_COUNT}s\n", "", "allocs"
 puts  "  " + "=" * (COL_LABEL + COL_COUNT + 4)
 
-# --- popcount ---
-section "popcount (1MB data)"
+# --- bit_count ---
+section "bit_count (1MB data)"
 measure("Pure Ruby: each_byte { b.to_s(2).count(\"1\") }") {
   DATA_1MB.each_byte.sum { |b| b.to_s(2).count("1") }
 }
 measure("Pure Ruby: bytes.sum { ... }  (+ Array alloc)") {
   DATA_1MB.bytes.sum { |b| b.to_s(2).count("1") }
 }
-measure("gem:       popcount") {
-  DATA_1MB.popcount
+measure("gem:       bit_count") {
+  DATA_1MB.bit_count
 }
 
 # --- bulk bitwise ---

@@ -36,9 +36,9 @@ class TestBitNot < Minitest::Test
     assert_same s, result
   end
 
-  def test_bit_not_popcount
+  def test_bit_not_bit_count
     s = "\xAA"  # 4 bits set
-    assert_equal 8 - s.popcount, s.bit_not.popcount
+    assert_equal 8 - s.bit_count, s.bit_not.bit_count
   end
 end
 
