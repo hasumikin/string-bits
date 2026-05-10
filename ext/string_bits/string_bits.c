@@ -893,14 +893,19 @@ count_run_msb(const unsigned char *src, long pos, int target)
     return count < max_run ? count : max_run;
 }
 
-/* String#count_run(pos) -> Integer
+/* String#count_run(pos, bit, order: :lsb) -> Integer
  *
- * Returns the length of the consecutive run of identical bits that starts at
- * flat position `pos`.  The bit value at `pos` determines what is counted.
- * Returns 0 when `pos` is out of range (mirrors bit_at nil behavior).
+ * Returns the length of the consecutive run of `bit` starting at flat
+ * position `pos`.  Returns 0 when `pos` is out of range or the bit at `pos`
+ * does not equal `bit`.
  *
- * Equivalent to Gauche Scheme's (bitvector-count-run bit bvec i), where the
- * bit value is inferred from the string rather than passed explicitly.
+ * `bit` accepts 0, 1, false, or true (false/true are aliases for 0/1,
+ * matching the values yielded by each_run).
+ *
+ * order: :lsb (default) counts forward (toward higher bit indices).
+ * order: :msb counts backward (toward lower bit indices).
+ *
+ * Equivalent to Gauche Scheme's (bitvector-count-run bit bvec i).
  *
  * Uses the same flat LSB-first addressing as bit_at: byte[pos/8] bit pos%8.
  *
@@ -909,17 +914,37 @@ count_run_msb(const unsigned char *src, long pos, int target)
  *   2. Reuse integer_to_bit_idx for consistent Bignum handling.
  */
 static VALUE
-rb_str_count_run(VALUE self, VALUE pos_val)
+rb_str_count_run(int argc, VALUE *argv, VALUE self)
 {
+    VALUE pos_val, bit_val, opts;
+    rb_scan_args(argc, argv, "2:", &pos_val, &bit_val, &opts);
+
     if (!rb_integer_type_p(pos_val)) {
         rb_raise(rb_eTypeError, "position must be an integer");
+    }
+    int target;
+    if (bit_val == Qtrue || bit_val == INT2FIX(1)) {
+        target = 1;
+    } else if (bit_val == Qfalse || bit_val == INT2FIX(0)) {
+        target = 0;
+    } else {
+        rb_raise(rb_eArgError, "bit must be 0, 1, false, or true");
+    }
+    int msb_first = 0;
+    if (!NIL_P(opts)) {
+        VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
+        if (NIL_P(order) || order == ID2SYM(rb_intern("lsb"))) msb_first = 0;
+        else if (order == ID2SYM(rb_intern("msb"))) msb_first = 1;
+        else rb_raise(rb_eArgError, "order must be :lsb or :msb");
     }
     long pos     = integer_to_bit_idx(pos_val);
     long src_len = RSTRING_LEN(self);
     if (pos < 0 || pos >= src_len * 8) return LONG2FIX(0);
 
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-    int target = (src[pos >> 3] >> (pos & 7)) & 1;
+    if (((src[pos >> 3] >> (pos & 7)) & 1) != target) return LONG2FIX(0);
+    if (msb_first)
+        return LONG2FIX(count_run_msb(src, pos, target));
     return LONG2FIX(count_run_lsb(src, src_len, pos, target));
 }
 
@@ -1347,7 +1372,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,         2);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
-    rb_define_method(rb_cString, "count_run",         rb_str_count_run,         1);
+    rb_define_method(rb_cString, "count_run",         rb_str_count_run,        -1);
     rb_define_method(rb_cString, "each_run",          rb_str_each_run,         -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,           1);
     rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,         1);

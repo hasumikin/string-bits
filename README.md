@@ -269,22 +269,30 @@ bitmap.bit_splice(40, 40, new_mask)
 
 ---
 
-#### `count_run(pos) -> Integer`
+#### `count_run(pos, bit, order: :lsb) -> Integer`
 
-Returns the length of the consecutive run of identical bits that starts at flat position `pos`. The bit value at `pos` determines what is counted. Returns 0 when `pos` is out of range.
+Returns the length of the consecutive run of `bit` starting at flat position `pos`. Returns 0 when `pos` is out of range or the bit at `pos` does not equal `bit`.
 
-Equivalent to Gauche Scheme's `bitvector-count-run`, with the bit value inferred from the string rather than passed explicitly.
+`bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are aliases for `0`/`1`, matching the values yielded by `each_run`).
+
+`order: :lsb` (default) counts forward toward higher bit indices. `order: :msb` counts backward toward lower bit indices — mirrors `each_run(order: :msb)`.
+
+Equivalent to Gauche Scheme's `bitvector-count-run`.
 
 ```ruby
-data = "\xF0"   # 11110000
+data = "\xF0"   # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
-data.count_run(0)  #=> 4  (bits 0-3 are 0)
-data.count_run(4)  #=> 4  (bits 4-7 are 1)
+data.count_run(0, 0)  #=> 4  (4 zeros forward from bit 0)
+data.count_run(4, 1)  #=> 4  (4 ones forward from bit 4)
+data.count_run(0, 1)  #=> 0  (bit 0 is not 1)
+
+data.count_run(3, 0, order: :msb)  #=> 4  (4 zeros backward from bit 3)
+data.count_run(7, 1, order: :msb)  #=> 4  (4 ones backward from bit 7)
 
 data = "\xFF\xFF\x00"
-data.count_run(0)  #=> 16 (16 ones before the first zero)
-data.count_run(16) #=> 8  (8 zeros from bit 16)
-data.count_run(24) #=> 0  (out of range)
+data.count_run(0,  1) #=> 16 (16 ones forward from bit 0)
+data.count_run(16, 0) #=> 8  (8 zeros forward from bit 16)
+data.count_run(24, 0) #=> 0  (out of range)
 ```
 
 Building block for position-driven iteration (Gauche style):
@@ -294,8 +302,9 @@ pos = 0
 total = data.bytesize * 8
 runs = []
 while pos < total
-  len = data.count_run(pos)
-  runs << [data.bit_at(pos), len]
+  bit = data.bit_at(pos)
+  len = data.count_run(pos, bit)
+  runs << [bit, len]
   pos += len
 end
 ```
