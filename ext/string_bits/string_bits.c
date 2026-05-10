@@ -43,6 +43,9 @@ sb_popcount64(uint64_t x)
 
 /* ctz / clz helpers for set-bit iteration ---------------------------------- */
 
+static ID id_bracket;
+static VALUE sym_order, sym_lsb, sym_msb, sym_planes, sym_invert;
+
 static inline int
 sb_ctz8(unsigned int x)
 {
@@ -161,7 +164,7 @@ integer_to_bit_idx(VALUE n)
 }
 
 static long
-check_bit_index(VALUE self, VALUE n)
+check_bit_index(VALUE self, VALUE n, int msb_first)
 {
     if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
@@ -171,7 +174,19 @@ check_bit_index(VALUE self, VALUE n)
     if (idx < 0 || idx >= size) {
         rb_raise(rb_eIndexError, "bit index out of range");
     }
+    if (msb_first) idx = size - 1 - idx;
     return idx;
+}
+
+static int
+parse_order_opt(VALUE opts)
+{
+    if (NIL_P(opts)) return 0;
+    VALUE order = rb_hash_aref(opts, sym_order);
+    if (NIL_P(order) || order == sym_lsb) return 0;
+    if (order == sym_msb) return 1;
+    rb_raise(rb_eArgError, "order must be :lsb or :msb");
+    return 0;
 }
 
 static int
@@ -179,17 +194,12 @@ parse_order(int argc, VALUE *argv)
 {
     VALUE opts = Qnil;
     rb_scan_args(argc, argv, "0:", &opts);
-    if (NIL_P(opts)) return 0;
-    VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
-    if (NIL_P(order) || order == ID2SYM(rb_intern("lsb"))) return 0;
-    if (order == ID2SYM(rb_intern("msb"))) return 1;
-    rb_raise(rb_eArgError, "order must be :lsb or :msb");
-    return 0;
+    return parse_order_opt(opts);
 }
 
 /* read -------------------------------------------------------------------- */
 
-/* String#bit_at(n) -> true or false
+/* String#bit_at(n, order: :lsb) -> true or false
  *
  * bit_at uses flat/Arrow convention: byte_index = n/8 from start, bit = n%8 from LSB
  * e.g. "\xAA\xCC": bit 0..7 live in byte[0]=0xAA, bit 8..15 live in byte[1]=0xCC
@@ -202,8 +212,11 @@ parse_order(int argc, VALUE *argv)
  *   str.bit_at(16) # => nil
  */
 static VALUE
-rb_str_bit_at(VALUE self, VALUE n)
+rb_str_bit_at(int argc, VALUE *argv, VALUE self)
 {
+    VALUE n, opts;
+    rb_scan_args(argc, argv, "1:", &n, &opts);
+
     if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
     }
@@ -215,6 +228,13 @@ rb_str_bit_at(VALUE self, VALUE n)
     if (size <= idx) {
         return Qnil;
     }
+
+    int msb_first = parse_order_opt(opts);
+
+    if (msb_first) {
+        idx = size - 1 - idx;
+    }
+
     if (test_bit(RSTRING_PTR(self), idx)) {
         return Qtrue;
     } else {
@@ -441,8 +461,11 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
  *   str.bit_slice(4, 8) # => "\xF0" (11110000)
  */
 static VALUE
-rb_str_bit_slice(VALUE self, VALUE bit_offset, VALUE bit_length)
+rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
 {
+    VALUE bit_offset, bit_length, opts;
+    rb_scan_args(argc, argv, "2:", &bit_offset, &bit_length, &opts);
+
     if (!rb_integer_type_p(bit_offset) || !rb_integer_type_p(bit_length)) {
         return Qnil;
     }
@@ -458,10 +481,23 @@ rb_str_bit_slice(VALUE self, VALUE bit_offset, VALUE bit_length)
 
     long src_len = RSTRING_LEN(self);
     long total_bits = src_len * 8;
-    if (offset > total_bits) return Qnil;
 
+    int msb_first = parse_order_opt(opts);
+
+    if (offset > total_bits) return Qnil;
     long available = total_bits - offset;
     if (length > available) length = available;
+
+    if (msb_first) {
+        /* In MSB order, logical offset 0 is physical total_bits-1.
+         * A slice of length L starting at logical offset O
+         * maps to physical bits (total_bits - 1 - O) down to (total_bits - O - L).
+         * The physical start bit for bit_copy (LSB-first) is the lowest bit index.
+         * physical_offset = total_bits - O - L.
+         */
+        offset = total_bits - offset - length;
+    }
+
     if (length == 0) return rb_str_new("", 0);
 
     long out_bytes = (length + 7) / 8;
@@ -497,27 +533,39 @@ rb_str_bit_slice(VALUE self, VALUE bit_offset, VALUE bit_length)
 /* single-bit mutation ----------------------------------------------------- */
 
 static VALUE
-rb_str_set_bit(VALUE self, VALUE n)
+rb_str_set_bit(int argc, VALUE *argv, VALUE self)
 {
-    long idx = check_bit_index(self, n);
+    VALUE n, opts;
+    rb_scan_args(argc, argv, "1:", &n, &opts);
+    int msb_first = parse_order_opt(opts);
+
+    long idx = check_bit_index(self, n, msb_first);
     rb_str_modify(self);
     RSTRING_PTR(self)[idx / 8] |= (unsigned char)(1 << (idx % 8));
     return self;
 }
 
 static VALUE
-rb_str_clear_bit(VALUE self, VALUE n)
+rb_str_clear_bit(int argc, VALUE *argv, VALUE self)
 {
-    long idx = check_bit_index(self, n);
+    VALUE n, opts;
+    rb_scan_args(argc, argv, "1:", &n, &opts);
+    int msb_first = parse_order_opt(opts);
+
+    long idx = check_bit_index(self, n, msb_first);
     rb_str_modify(self);
     RSTRING_PTR(self)[idx / 8] &= (unsigned char)~(1 << (idx % 8));
     return self;
 }
 
 static VALUE
-rb_str_flip_bit(VALUE self, VALUE n)
+rb_str_flip_bit(int argc, VALUE *argv, VALUE self)
 {
-    long idx = check_bit_index(self, n);
+    VALUE n, opts;
+    rb_scan_args(argc, argv, "1:", &n, &opts);
+    int msb_first = parse_order_opt(opts);
+
+    long idx = check_bit_index(self, n, msb_first);
     rb_str_modify(self);
     RSTRING_PTR(self)[idx / 8] ^= (unsigned char)(1 << (idx % 8));
     return self;
@@ -718,10 +766,9 @@ rb_str_each_bit_slice(int argc, VALUE *argv, VALUE self)
     }
 
     long planes = 1;
-    int msb_first = 0;
 
     if (!NIL_P(opts)) {
-        VALUE v_planes = rb_hash_aref(opts, ID2SYM(rb_intern("planes")));
+        VALUE v_planes = rb_hash_aref(opts, sym_planes);
         if (!NIL_P(v_planes)) {
             if (!rb_integer_type_p(v_planes)) {
                 rb_raise(rb_eTypeError, "planes must be an integer");
@@ -731,13 +778,8 @@ rb_str_each_bit_slice(int argc, VALUE *argv, VALUE self)
                 rb_raise(rb_eArgError, "planes must be positive");
             }
         }
-        VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
-        if (!NIL_P(order)) {
-            if (order == ID2SYM(rb_intern("lsb")))      msb_first = 0;
-            else if (order == ID2SYM(rb_intern("msb"))) msb_first = 1;
-            else rb_raise(rb_eArgError, "order must be :lsb or :msb");
-        }
     }
+    int msb_first = parse_order_opt(opts);
 
     long src_len = RSTRING_LEN(self);
     long total_bits = src_len * 8;
@@ -930,13 +972,7 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     } else {
         rb_raise(rb_eArgError, "bit must be 0, 1, false, or true");
     }
-    int msb_first = 0;
-    if (!NIL_P(opts)) {
-        VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
-        if (NIL_P(order) || order == ID2SYM(rb_intern("lsb"))) msb_first = 0;
-        else if (order == ID2SYM(rb_intern("msb"))) msb_first = 1;
-        else rb_raise(rb_eArgError, "order must be :lsb or :msb");
-    }
+    int msb_first = parse_order_opt(opts);
     long pos     = integer_to_bit_idx(pos_val);
     long src_len = RSTRING_LEN(self);
     if (pos < 0 || pos >= src_len * 8) return LONG2FIX(0);
@@ -1122,66 +1158,77 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     long src_bit_off, src_bit_len;
     VALUE str;
     long dst_total = RSTRING_LEN(self) * 8;
+    VALUE v0, v1, v2, v3, v4, opts;
 
-    if (argc == 2 && rb_obj_is_kind_of(argv[0], rb_cRange)) {
+    int n_pos = rb_scan_args(argc, argv, "23:", &v0, &v1, &v2, &v3, &v4, &opts);
+
+    int msb_first = parse_order_opt(opts);
+
+    if (n_pos == 2 && rb_obj_is_kind_of(v0, rb_cRange)) {
         /* bit_splice(range, str) */
         long beg, len;
-        rb_range_beg_len(argv[0], &beg, &len, dst_total, 1);
+        rb_range_beg_len(v0, &beg, &len, dst_total, 1);
         dst_bit_off = beg;
         dst_bit_len = len;
-        str = argv[1];
+        str = v1;
         Check_Type(str, T_STRING);
         src_bit_off = 0;
-        src_bit_len = dst_bit_len; /* read exactly dst_bit_len bits from str[0] */
+        src_bit_len = dst_bit_len;
     }
-    else if (argc == 3 && rb_obj_is_kind_of(argv[0], rb_cRange)) {
+    else if (n_pos == 3 && rb_obj_is_kind_of(v0, rb_cRange)) {
         /* bit_splice(range, str, str_range) */
         long beg, len;
-        rb_range_beg_len(argv[0], &beg, &len, dst_total, 1);
+        rb_range_beg_len(v0, &beg, &len, dst_total, 1);
         dst_bit_off = beg;
         dst_bit_len = len;
-        str = argv[1];
+        str = v1;
         Check_Type(str, T_STRING);
-        if (!rb_obj_is_kind_of(argv[2], rb_cRange)) {
+        if (!rb_obj_is_kind_of(v2, rb_cRange)) {
             rb_raise(rb_eTypeError, "third argument must be a Range");
         }
         long src_total = RSTRING_LEN(str) * 8;
-        rb_range_beg_len(argv[2], &beg, &len, src_total, 1);
+        rb_range_beg_len(v2, &beg, &len, src_total, 1);
         src_bit_off = beg;
         src_bit_len = len;
     }
-    else if (argc == 3) {
+    else if (n_pos == 3) {
         /* bit_splice(bit_index, bit_length, str) */
-        if (!rb_integer_type_p(argv[0]) || !rb_integer_type_p(argv[1])) {
+        if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1)) {
             rb_raise(rb_eTypeError, "bit index and length must be integers");
         }
-        dst_bit_off = NUM2LONG(argv[0]);
-        dst_bit_len = NUM2LONG(argv[1]);
+        dst_bit_off = NUM2LONG(v0);
+        dst_bit_len = NUM2LONG(v1);
         if (dst_bit_off < 0) dst_bit_off += dst_total;
-        str = argv[2];
+        str = v2;
         Check_Type(str, T_STRING);
         src_bit_off = 0;
-        src_bit_len = dst_bit_len; /* read exactly dst_bit_len bits from str[0] */
+        src_bit_len = dst_bit_len;
     }
-    else if (argc == 5) {
+    else if (n_pos == 5) {
         /* bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) */
-        if (!rb_integer_type_p(argv[0]) || !rb_integer_type_p(argv[1]) ||
-            !rb_integer_type_p(argv[3]) || !rb_integer_type_p(argv[4])) {
+        if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1) ||
+            !rb_integer_type_p(v3) || !rb_integer_type_p(v4)) {
             rb_raise(rb_eTypeError, "bit indices and lengths must be integers");
         }
-        dst_bit_off = NUM2LONG(argv[0]);
-        dst_bit_len = NUM2LONG(argv[1]);
+        dst_bit_off = NUM2LONG(v0);
+        dst_bit_len = NUM2LONG(v1);
         if (dst_bit_off < 0) dst_bit_off += dst_total;
-        str = argv[2];
+        str = v2;
         Check_Type(str, T_STRING);
         long src_total = RSTRING_LEN(str) * 8;
-        src_bit_off = NUM2LONG(argv[3]);
-        src_bit_len = NUM2LONG(argv[4]);
+        src_bit_off = NUM2LONG(v3);
+        src_bit_len = NUM2LONG(v4);
         if (src_bit_off < 0) src_bit_off += src_total;
     }
     else {
         rb_raise(rb_eArgError,
-                 "wrong number of arguments (given %d, expected 2, 3, or 5)", argc);
+                 "wrong number of arguments (given %d, expected 2, 3, or 5)", n_pos);
+    }
+
+    if (msb_first) {
+        dst_bit_off = dst_total - dst_bit_off - dst_bit_len;
+        long src_total_bits = RSTRING_LEN(str) * 8;
+        src_bit_off = src_total_bits - src_bit_off - src_bit_len;
     }
 
     if (dst_bit_off < 0 || dst_bit_len < 0 || dst_bit_off + dst_bit_len > dst_total) {
@@ -1238,26 +1285,21 @@ parse_mask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
     VALUE bitmap, opts;
     rb_scan_args(argc, argv, "1:", &bitmap, &opts);
 
-    int msb_first  = 0; /* default :lsb */
-    int invert     = 0; /* default false */
     int is_integer = rb_integer_type_p(bitmap);
 
     if (!is_integer) Check_Type(bitmap, T_STRING);
 
+    int msb_first  = parse_order_opt(opts);
+    int invert     = 0; /* default false */
+
+    if (msb_first && is_integer) {
+        rb_raise(rb_eArgError,
+                 "order: :msb is not supported for Integer bitmap; "
+                 "Integer bits are always LSB-first");
+    }
+
     if (!NIL_P(opts)) {
-        VALUE order = rb_hash_aref(opts, ID2SYM(rb_intern("order")));
-        if (!NIL_P(order)) {
-            if (order == ID2SYM(rb_intern("lsb")))       msb_first = 0;
-            else if (order == ID2SYM(rb_intern("msb"))) {
-                if (is_integer)
-                    rb_raise(rb_eArgError,
-                             "order: :msb is not supported for Integer bitmap; "
-                             "Integer bits are always LSB-first");
-                msb_first = 1;
-            }
-            else rb_raise(rb_eArgError, "order: must be :lsb or :msb");
-        }
-        VALUE inv = rb_hash_aref(opts, ID2SYM(rb_intern("invert")));
+        VALUE inv = rb_hash_aref(opts, sym_invert);
         if (!NIL_P(inv)) {
             invert = RTEST(inv) ? 1 : 0;
         }
@@ -1283,7 +1325,7 @@ integer_get_bit(VALUE n, long i)
     }
     if (RBIGNUM_NEGATIVE_P(n))
         rb_raise(rb_eArgError, "Integer bitmap must be non-negative");
-    VALUE bit = rb_funcall(n, rb_intern("[]"), 1, LONG2FIX(i));
+    VALUE bit = rb_funcall(n, id_bracket, 1, LONG2FIX(i));
     return RB_TEST(bit) ? 1 : 0;
 }
 
@@ -1363,20 +1405,27 @@ rb_ary_mask_bang(int argc, VALUE *argv, VALUE self)
 void
 Init_string_bits(void)
 {
-    rb_define_method(rb_cString, "bit_at",            rb_str_bit_at,            1);
+    id_bracket = rb_intern("[]");
+    sym_order  = ID2SYM(rb_intern("order"));
+    sym_lsb    = ID2SYM(rb_intern("lsb"));
+    sym_msb    = ID2SYM(rb_intern("msb"));
+    sym_planes = ID2SYM(rb_intern("planes"));
+    sym_invert = ID2SYM(rb_intern("invert"));
+
+    rb_define_method(rb_cString, "bit_at",            rb_str_bit_at,           -1);
     rb_define_method(rb_cString, "bit_count",         rb_str_bit_count,         0);
     rb_define_method(rb_cString, "each_bit",          rb_str_each_bit,         -1);
     rb_define_method(rb_cString, "bits",              rb_str_bits,             -1);
     rb_define_method(rb_cString, "each_set_bit",      rb_str_each_set_bit,     -1);
     rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
-    rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,         2);
+    rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
-    rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,           1);
-    rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,         1);
-    rb_define_method(rb_cString, "flip_bit",          rb_str_flip_bit,          1);
+    rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,          -1);
+    rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,        -1);
+    rb_define_method(rb_cString, "flip_bit",          rb_str_flip_bit,         -1);
     rb_define_method(rb_cString, "bit_not",           rb_str_bit_not,           0);
     rb_define_method(rb_cString, "bit_not!",          rb_str_bit_not_bang,      0);
     rb_define_method(rb_cString, "bit_and",           rb_str_bit_and,           1);

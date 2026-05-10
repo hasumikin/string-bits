@@ -10,14 +10,14 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 
 | category | methods | zero-copy | `order:` keyword param |
 |----------|---------|-----------|----------|
-| read | `bit_at`, `bit_count` | yes | no |
+| read | `bit_at`, `bit_count` | yes | `bit_at` only |
 | iterate bits | `each_bit`, `bits` | yes | yes |
 | iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes | yes |
-|  extract | `bit_slice` | no | no |
-| multi-bit mutation | `bit_splice` | yes | no |
+|  extract | `bit_slice` | no | yes |
+| multi-bit mutation | `bit_splice` | yes | yes |
 | packed bit-field iteration | `each_bit_slice` | no | yes |
 | run-length iteration | `each_bit_run`, `bit_run_count` | yes | yes |
-| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | no |
+| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | yes |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes | no |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no | no |
 
@@ -36,20 +36,18 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 
 ---
 
-#### `bit_at(n) -> true | false | nil`
+#### `bit_at(n, order: :lsb) -> true | false | nil`
 
-Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range (mirrors `String#[]` behaviour). O(1) --- no allocation.
+Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range.
 
-Out-of-range returns `nil` rather than raising so that `bit_at` can be used as a predicate in tight loops without exception overhead. This is consistent with `String#[]`, `Array#[]`, and `getbyte`, all of which return `nil` for an out-of-range index. Because `nil` is falsy, `if bitmap.bit_at(i)` works naturally as a boolean check with implicit bounds safety.
+`order: :lsb` (default) counts from the first bit of the first byte. `order: :msb` counts from the last bit of the last byte (mirroring `each_bit(order: :msb)`).
 
 ```ruby
-bitmap = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0b10101010
+bitmap = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
 
-bitmap.bit_at(0)   #=> true   (bit 0 of byte[0])
-bitmap.bit_at(7)   #=> true   (bit 7 of byte[0])
-bitmap.bit_at(8)   #=> false  (bit 0 of byte[1], 0b10101010 & 1 == 0)
-bitmap.bit_at(9)   #=> true   (bit 1 of byte[1])
-bitmap.bit_at(16)  #=> nil    (out of range)
+bitmap.bit_at(0)                #=> true  (bit 0 of byte[0])
+bitmap.bit_at(0, order: :msb)   #=> true  (bit 7 of byte[1])
+bitmap.bit_at(8, order: :msb)   #=> true  (bit 7 of byte[0])
 ```
 
 Apache Arrow idiom --- check if element `i` is valid:
@@ -180,21 +178,17 @@ Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ---
 
-#### `bit_slice(bit_offset, bit_length) -> String | nil`
+#### `bit_slice(bit_offset, bit_length, order: :lsb) -> String | nil`
 
-The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset` and returns them packed into a new `String`. Bit `bit_offset` of the source becomes bit 0 of the result; bit `bit_offset + 1` becomes bit 1, and so on, preserving the LSB-first layout within each byte. When `bit_length` is not a multiple of 8, the remaining bits of the last byte in the result are zero-padded.
+The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset`.
 
-Out-of-range and clamping behaviour mirrors `String#byteslice`: returns `nil` if `bit_offset` is negative or strictly greater than the total number of bits; silently clamps `bit_length` if `bit_offset + bit_length` exceeds the total.
+`order: :lsb` (default) counts `bit_offset` from the first bit. `order: :msb` counts from the last bit. The extracted bits are returned as a new `String` in the standard LSB-first layout.
 
 ```ruby
-data = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0b10101010
+data = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
 
-data.bit_slice(0, 8)   #=> "\xFF"      (bits 0-7: all of byte[0])
-data.bit_slice(8, 8)   #=> "\xAA"      (bits 8-15: all of byte[1])
-data.bit_slice(0, 16)  #=> "\xFF\xAA"  (all bits)
-data.bit_slice(4, 8)   #=> "\xAF"      (bits 4-11, crosses byte boundary)
-data.bit_slice(12, 8)  #=> "\x0A"      (bits 12-15 clamped to 4, zero-padded)
-data.bit_slice(16, 1)  #=> nil         (out of range)
+data.bit_slice(0, 8)                #=> "\xFF"
+data.bit_slice(0, 8, order: :msb)   #=> "\xAA"
 ```
 
 The result String uses the same flat numbering scheme as the source, so `bit_at` and all iteration methods work directly on it:
@@ -218,12 +212,15 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 
 ---
 
-#### `bit_splice(bit_index, bit_length, str) -> self`
-#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
-#### `bit_splice(range, str) -> self`
-#### `bit_splice(range, str, str_range) -> self`
+#### `bit_splice(bit_index, bit_length, str, order: :lsb) -> self`
+#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, order: :lsb) -> self`
+#### `bit_splice(range, str, order: :lsb) -> self`
+#### `bit_splice(range, str, str_range, order: :lsb) -> self`
 
-The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`. The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
+The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
+
+`order: :lsb` (default) counts from the first bit. `order: :msb` counts from the last bit.
+ The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
 
 `bit_splice` does not resize `self` --- the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
 
@@ -453,9 +450,9 @@ Read methods return `nil` for out-of-range positions; mutation methods raise. Th
 
 ---
 
-#### `set_bit(n) -> self`
+#### `set_bit(n, order: :lsb) -> self`
 
-Sets bit at position `n` to 1.
+Sets bit at position `n` to 1. `order: :lsb` (default) counts from the first bit; `order: :msb` counts from the last bit.
 
 ```ruby
 bitmap = +"\x00\x00"
@@ -472,9 +469,9 @@ rows.each_with_index { |row, i| bitmap.set_bit(i) unless row[:value].nil? }
 
 ---
 
-#### `clear_bit(n) -> self`
+#### `clear_bit(n, order: :lsb) -> self`
 
-Sets bit at position `n` to 0.
+Sets bit at position `n` to 0. `order: :lsb` (default) counts from the first bit; `order: :msb` counts from the last bit.
 
 ```ruby
 bitmap = +"\xFF\xFF"
@@ -484,9 +481,9 @@ bitmap.clear_bit(8)  #=> "\xFE\xFE"
 
 ---
 
-#### `flip_bit(n) -> self`
+#### `flip_bit(n, order: :lsb) -> self`
 
-Toggles bit at position `n`.
+Toggles bit at position `n`. `order: :lsb` (default) counts from the first bit; `order: :msb` counts from the last bit.
 
 ```ruby
 bitmap = +"\x00"
@@ -663,12 +660,14 @@ Within each byte, the **LSB is the lower-numbered position**. Bytes are numbered
 
 ### The `order:` parameter
 
-The `order:` keyword controls **traversal direction** only; it never changes what position N means.
+The `order:` keyword controls **interpretation and traversal direction**. It defines which bit is considered "first" (index 0).
 
-| `order:` | traversal | position sequence |
+| `order:` | interpretation | position sequence / indexing |
 |----------|-----------|-------------------|
 | `:lsb` (default) | low -> high | 0, 1, 2, ... , total-1 |
 | `:msb`   | high -> low | total-1, ..., 2, 1, 0 |
+
+For iterative methods (`each_bit`, `each_set_bit`), it controls the yield order. For index-based methods (`bit_at`, `bit_slice`, `bit_splice`, `set_bit`, etc.), it defines the mapping of logical index `n` to physical bit position.
 
 The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). This ensures `values.mask(bitmap)` and `bitmap.each_set_bit { |i| values[i] }` work correctly without extra arguments. Additionally, `:lsb` yields positions in ascending order, making `set_bit_positions` results immediately usable as array subscripts.
 
