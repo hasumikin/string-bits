@@ -1,0 +1,42 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  BITLEN = 12
+  PLANES = 2
+  # 30_000 bytes = 20_000 twelve-bit slices = 10_000 stereo pairs.
+  # Simulates dual-channel ADC data (two interleaved 12-bit sensors).
+  DATA = Random.bytes(30_000)
+
+benchmark:
+  # planes: keyword -- single rb_yield_values2 call per group, no Array allocated.
+  planes_kwarg: |
+    sum = 0
+    DATA.each_bit_slice(BITLEN, planes: PLANES) do |ch0, ch1|
+      sum += ch0.bit_count + ch1.bit_count
+    end
+    sum
+
+  # Idiomatic Ruby alternative: each_bit_slice returns an Enumerator;
+  # each_slice(N) accumulates N slices into an Array before yielding.
+  # Cost: one Array allocation per group (10_000 Arrays for this dataset).
+  each_slice_chain: |
+    sum = 0
+    DATA.each_bit_slice(BITLEN).each_slice(PLANES) do |pair|
+      sum += pair[0].bit_count + pair[1].bit_count
+    end
+    sum
+
+  # Manual grouping with a reused accumulator array.
+  # Shows that the allocation is the bottleneck, not argument-count dispatch.
+  manual_accum: |
+    sum = 0
+    buf = []
+    DATA.each_bit_slice(BITLEN) do |s|
+      buf << s
+      if buf.size == PLANES
+        sum += buf[0].bit_count + buf[1].bit_count
+        buf.clear
+      end
+    end
+    sum

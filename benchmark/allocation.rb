@@ -170,4 +170,25 @@ measure("gem:       mask! (in-place, needs dup)") {
   bm_values.dup.mask!(bm_bitmap, order: :lsb)
 }
 
+# --- each_bit_slice planes: vs .each_slice chain ---
+section "each_bit_slice grouping -- 30KB, 12-bit slices, 10_000 pairs (planes: 2)"
+ebs_data = Random.bytes(30_000)
+measure("gem:       each_bit_slice(12, planes: 2) { |a,b| }") {
+  ebs_data.each_bit_slice(12, planes: 2) { |_a, _b| }
+}
+measure("Ruby:      each_bit_slice(12).each_slice(2) { |arr| }") {
+  ebs_data.each_bit_slice(12).each_slice(2) { |_pair| }
+}
+measure("Ruby:      each_bit_slice(12).each_slice(2).to_a  (materialise)") {
+  ebs_data.each_bit_slice(12).each_slice(2).to_a
+}
+
+section "each_bit_slice grouping -- 30KB, 12-bit slices, 6_666 RGB triplets (planes: 3)"
+measure("gem:       each_bit_slice(12, planes: 3) { |r,g,b| }") {
+  ebs_data.each_bit_slice(12, planes: 3) { |_r, _g, _b| }
+}
+measure("Ruby:      each_bit_slice(12).each_slice(3) { |arr| }") {
+  ebs_data.each_bit_slice(12).each_slice(3) { |_arr| }
+}
+
 puts
