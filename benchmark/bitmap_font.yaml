@@ -31,11 +31,12 @@ benchmark:
     result = +""
     DATA.each_bit_slice(BITLEN, planes: 2, order: :lsb) do |plane0, plane1|
       BITLEN.times do |j|
-        result << case [plane0.bit_at(j), plane1.bit_at(j)]
-                  in [true,  true]  then "\xE2\x96\x88"
-                  in [true,  false] then "\xE2\x96\x80"
-                  in [false, true]  then "\xE2\x96\x84"
-                  else                   " "
+        upper = plane0.bit_at(j)
+        lower = plane1.bit_at(j)
+        result << if upper
+                    lower ? "\xE2\x96\x88" : "\xE2\x96\x80"
+                  else
+                    lower ? "\xE2\x96\x84" : " "
                   end
       end
     end
