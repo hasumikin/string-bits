@@ -222,6 +222,10 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 
 ---
 
+### Multi-bit mutation
+
+---
+
 #### `bit_splice(bit_index, bit_length, str) -> self`
 #### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
 #### `bit_splice(range, str) -> self`
@@ -274,6 +278,10 @@ Apache Arrow idiom --- overwrite a sub-range of a validity bitmap in place:
 # Replace elements 40..79 of the bitmap with a new validity mask
 bitmap.bit_splice(40, 40, new_mask)
 ```
+
+---
+
+### Iteration and Search
 
 ---
 
