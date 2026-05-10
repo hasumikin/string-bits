@@ -1,6 +1,6 @@
 # String Bit Operations
 
-Ruby's `String` is already a byte sequence. This proposal extends it one level lower: **a bit sequence** — making packed binary buffers first-class values without any new class or intermediate allocation. A companion extension to `Array` applies validity bitmaps directly to Ruby arrays, covering the Apache Arrow use case without per-element `rb_yield` overhead.
+Ruby's `String` is already a byte sequence. This proposal extends it one level lower: **a bit sequence** --- making packed binary buffers first-class values without any new class or intermediate allocation. A companion extension to `Array` applies validity bitmaps directly to Ruby arrays, covering the Apache Arrow use case without per-element `rb_yield` overhead.
 
 The methods are designed for real workloads: Apache Arrow validity bitmaps, bitmap font glyph data, and any protocol buffer where bits carry meaning. Most methods operate zero-copy on the existing string bytes; the non-`!` bulk bitwise variants and `bit_slice` return a newly allocated `String`. Because the API relies solely on `String`, the same methods would benefit memory-constrained implementations such as mruby and PicoRuby once adopted into CRuby.
 
@@ -38,7 +38,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 
 #### `bit_at(n) -> true | false | nil`
 
-Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range (mirrors `String#[]` behaviour). O(1) — no allocation.
+Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range (mirrors `String#[]` behaviour). O(1) --- no allocation.
 
 Out-of-range returns `nil` rather than raising so that `bit_at` can be used as a predicate in tight loops without exception overhead. This is consistent with `String#[]`, `Array#[]`, and `getbyte`, all of which return `nil` for an out-of-range index. Because `nil` is falsy, `if bitmap.bit_at(i)` works naturally as a boolean check with implicit bounds safety.
 
@@ -52,7 +52,7 @@ bitmap.bit_at(9)   #=> true   (bit 1 of byte[1])
 bitmap.bit_at(16)  #=> nil    (out of range)
 ```
 
-Apache Arrow idiom — check if element `i` is valid:
+Apache Arrow idiom --- check if element `i` is valid:
 
 ```ruby
 valid = bitmap.bit_at(i)
@@ -62,7 +62,7 @@ valid = bitmap.bit_at(i)
 
 #### `bit_count -> Integer`
 
-Returns the total number of set bits across the entire string. O(bytesize) — no per-bit branching. The C implementation will use `__builtin_popcount` (GCC/Clang) to map directly to the hardware `POPCNT` instruction where available.
+Returns the total number of set bits across the entire string. O(bytesize) --- no per-bit branching. The C implementation will use `__builtin_popcount` (GCC/Clang) to map directly to the hardware `POPCNT` instruction where available.
 
 ```ruby
 "\x00".bit_count     #=> 0
@@ -71,7 +71,7 @@ Returns the total number of set bits across the entire string. O(bytesize) — n
 "\xFF\xFF".bit_count #=> 16
 ```
 
-Apache Arrow idiom — count valid and null elements:
+Apache Arrow idiom --- count valid and null elements:
 
 ```ruby
 valid_count = bitmap.bit_count
@@ -114,7 +114,7 @@ order: :msb  -- position (total-1) first (last byte MSB first)
 #### `bits(order: :lsb) -> Array`
 #### `bits(order: :lsb) { |bool| ... } -> self`
 
-Without a block, returns an `Array` of `true`/`false` values — equivalent to `each_bit(order: order).to_a`. With a block, forwards each bit to the block and returns `self` — equivalent to `each_bit(order: order) { |b| ... }`.
+Without a block, returns an `Array` of `true`/`false` values --- equivalent to `each_bit(order: order).to_a`. With a block, forwards each bit to the block and returns `self` --- equivalent to `each_bit(order: order) { |b| ... }`.
 
 Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
@@ -157,7 +157,7 @@ data.each_set_bit do |n|
 end
 ```
 
-Apache Arrow idiom — iterate over valid element indices:
+Apache Arrow idiom --- iterate over valid element indices:
 
 ```ruby
 validity_bitmap.each_set_bit do |i|
@@ -170,7 +170,7 @@ end
 #### `set_bit_positions(order: :lsb) -> Array`
 #### `set_bit_positions(order: :lsb) { |n| ... } -> self`
 
-Without a block, returns an `Array` of set-bit positions — equivalent to `each_set_bit(order: order).to_a`. With a block, forwards each position to the block and returns `self` — equivalent to `each_set_bit(order: order) { |n| ... }`.
+Without a block, returns an `Array` of set-bit positions --- equivalent to `each_set_bit(order: order).to_a`. With a block, forwards each position to the block and returns `self` --- equivalent to `each_set_bit(order: order) { |n| ... }`.
 
 Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
@@ -213,7 +213,7 @@ result.bit_at(0)                    #=> same as data.bit_at(4)
 result.each_set_bit(order: :lsb)    # yields set-bit positions within the extracted range
 ```
 
-Apache Arrow idiom — normalize a non-byte-aligned validity bitmap for IPC serialization:
+Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC serialization:
 
 ```ruby
 # Arrow in-memory slice has bit offset 5; IPC requires offset 0
@@ -229,7 +229,7 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 
 The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`. The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
 
-`bit_splice` does not resize `self` — the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
+`bit_splice` does not resize `self` --- the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
 
 Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg and 2-arg forms, `bit_length` bits are read from the beginning of `str`. In the 5-arg form, the exact source sub-range is given explicitly.
 
@@ -268,7 +268,7 @@ buf.bit_splice(4, 12, slice)
 buf.bit_slice(4, 12) == slice   #=> true
 ```
 
-Apache Arrow idiom — overwrite a sub-range of a validity bitmap in place:
+Apache Arrow idiom --- overwrite a sub-range of a validity bitmap in place:
 
 ```ruby
 # Replace elements 40..79 of the bitmap with a new validity mask
@@ -283,7 +283,7 @@ Returns the length of the consecutive run of `bit` starting at flat position `po
 
 `bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are aliases for `0`/`1`, matching the values yielded by `each_bit_run`).
 
-`order: :lsb` (default) counts forward toward higher bit indices. `order: :msb` counts backward toward lower bit indices — mirrors `each_bit_run(order: :msb)`.
+`order: :lsb` (default) counts forward toward higher bit indices. `order: :msb` counts backward toward lower bit indices --- mirrors `each_bit_run(order: :msb)`.
 
 Equivalent to Gauche Scheme's `bitvector-count-run`.
 
@@ -324,7 +324,7 @@ end
 
 Iterates over the string in consecutive `bitlen`-bit windows, grouping `planes` windows per block call. Each window is passed to the block as a packed `String` using the same LSB-first bit layout as `bit_slice`. Without a block, returns an `Enumerator`.
 
-Incomplete trailing bits — when `bytesize * 8` is not a multiple of `bitlen * planes` — are silently dropped, matching the behavior of `Enumerable#each_slice`.
+Incomplete trailing bits --- when `bytesize * 8` is not a multiple of `bitlen * planes` --- are silently dropped, matching the behavior of `Enumerable#each_slice`.
 
 ```
 order: :lsb (default)  -- windows yielded left-to-right (ascending bit position)
@@ -341,12 +341,12 @@ data.each_bit_slice(8, planes: 2).to_a
 #=> [["\xAA", "\xCC"]] # one iteration, two planes per call
 ```
 
-**12-bit packed ADC / sensor data — the primary motivation**
+**12-bit packed ADC / sensor data --- the primary motivation**
 
 Embedded systems, audio codecs, and image sensors routinely pack measurements as 12-bit
 values into contiguous byte streams. This format is ubiquitous: it appears in ADC raw
 capture buffers, I2S / PDM audio frames, CAN bus sensor payloads, and MIPI CSI-2 RAW12
-image data. Because 12 is not a multiple of 8, there is no single-byte alignment — two
+image data. Because 12 is not a multiple of 8, there is no single-byte alignment --- two
 12-bit samples share a middle byte, and extracting them by hand requires careful shift
 arithmetic that is both tedious to write and error-prone.
 
@@ -392,7 +392,7 @@ end
 ```
 
 Each extracted slice is a plain `String`, so `bit_at`, `each_bit`, `bit_count`, and all
-other bit methods apply directly — no intermediate conversion or unpacking step required.
+other bit methods apply directly --- no intermediate conversion or unpacking step required.
 This is what makes the API worthwhile: the same tool that reads Arrow validity bitmaps
 also decodes packed sensor frames, with no new types and no extra allocation beyond the
 slice strings themselves.
@@ -402,7 +402,7 @@ slice strings themselves.
 #### `each_bit_run(order: :lsb) { |bit, len| } -> self`
 #### `each_bit_run(order: :lsb) -> Enumerator`
 
-Yields `(bit, run_length)` pairs for each consecutive run of identical bits. Run-length boundary detection and counting happen entirely in C — no Ruby-level `current`/`count` state machine is needed.
+Yields `(bit, run_length)` pairs for each consecutive run of identical bits. Run-length boundary detection and counting happen entirely in C --- no Ruby-level `current`/`count` state machine is needed.
 
 The key insight from Gauche's `bitvector-count-run`: instead of visiting every bit, use `__builtin_ctzll` to skip up to 64 identical bits in a single instruction per 8-byte word, making the inner loop O(run\_length / 64) rather than O(run\_length).
 
@@ -417,7 +417,7 @@ The key insight from Gauche's `bitvector-count-run`: instead of visiting every b
 #=> [[true, 24]]
 ```
 
-RLE encoding — the primary motivation:
+RLE encoding --- the primary motivation:
 
 ```ruby
 # with each_bit (Ruby-level state machine, one yield per bit)
@@ -441,7 +441,7 @@ Performance characteristics for random data (~50% density, average run length �
 | `each_bit` + Ruby state machine | 1.4x | 0.8x |
 | `each_bit_run` | **4.3x** | **1.5x** |
 
-For structured data with longer runs (sparse validity bitmaps, sensor bursts, run-length compressed streams) the speedup is proportional to average run length — a 64-bit run of zeros is resolved in a single `ctzll` call.
+For structured data with longer runs (sparse validity bitmaps, sensor bursts, run-length compressed streams) the speedup is proportional to average run length --- a 64-bit run of zeros is resolved in a single `ctzll` call.
 
 ---
 
@@ -463,7 +463,7 @@ bitmap.set_bit(0)   #=> bit 0 of byte[0] becomes 1  =>  "\x01\x00"
 bitmap.set_bit(9)   #=> bit 1 of byte[1] becomes 1  =>  "\x01\x02"
 ```
 
-Apache Arrow idiom — build a validity bitmap incrementally:
+Apache Arrow idiom --- build a validity bitmap incrementally:
 
 ```ruby
 bitmap = +"\x00" * ((row_count + 7) / 8)
@@ -533,13 +533,13 @@ Bitwise AND. A bit in the result is 1 only if both operands have 1 at that posit
 "\xF0".bit_and("\xCC")  #=> "\xC0"
 ```
 
-Apache Arrow idiom — null propagation (result valid only where both inputs are valid):
+Apache Arrow idiom --- null propagation (result valid only where both inputs are valid):
 
 ```ruby
 result_validity = left_validity.bit_and(right_validity)
 ```
 
-Apache Arrow idiom — apply a boolean filter to a column:
+Apache Arrow idiom --- apply a boolean filter to a column:
 
 ```ruby
 result_validity = source_validity.bit_and(filter_bitmap)
@@ -562,7 +562,7 @@ Bitwise OR. A bit in the result is 1 if either operand has 1 at that position.
 "\xF0".bit_or("\x0F")  #=> "\xFF"
 ```
 
-Apache Arrow idiom — union of two validity bitmaps:
+Apache Arrow idiom --- union of two validity bitmaps:
 
 ```ruby
 either_valid = left_validity.bit_or(right_validity)
@@ -593,7 +593,7 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 
 `Array#mask` applies a bitmap to an array, returning a new array of the same length where each element is either kept or replaced with `nil` according to the corresponding bit. `Array#mask!` performs the same operation in place.
 
-No Ruby block or `rb_yield` is involved — the operation is performed entirely in C, making it significantly faster than a Ruby-level `map` loop.
+No Ruby block or `rb_yield` is involved --- the operation is performed entirely in C, making it significantly faster than a Ruby-level `map` loop.
 
 #### `mask(bitmap, order: :lsb, invert: false) -> Array`
 
@@ -610,12 +610,12 @@ data.mask(bitmap)                        #=> [1, nil, 3, 4]
 bitmap = "\xD0".b   # 0b11010000
 data.mask(bitmap, order: :msb)           #=> [1, 2, nil, 4]
 
-# invert: true — keep where bit is 0, nil where bit is 1
+# invert: true --- keep where bit is 0, nil where bit is 1
 bitmap = "\x0D".b
 data.mask(bitmap, invert: true)          #=> [nil, 2, nil, nil]
 ```
 
-Apache Arrow idiom — materialize an Arrow column with nulls applied:
+Apache Arrow idiom --- materialize an Arrow column with nulls applied:
 
 ```ruby
 # One-time setup: build validity bitmap from source data.
@@ -667,20 +667,20 @@ The `order:` keyword controls **traversal direction** only; it never changes wha
 
 | `order:` | traversal | position sequence |
 |----------|-----------|-------------------|
-| `:lsb`   | low -> high | 0, 1, 2, ... , total-1 |
+| `:lsb` (default) | low -> high | 0, 1, 2, ... , total-1 |
 | `:msb`   | high -> low | total-1, ..., 2, 1, 0 |
 
-The default is `:lsb` — bits are yielded from position 0 upward, matching the natural order of array indices and the Apache Arrow validity bitmap convention (element `i` = byte `i/8` bit `i%8`). Pass `order: :msb` for conventional binary display where the most significant bit appears on the left.
+The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). This ensures `values.mask(bitmap)` and `bitmap.each_set_bit { |i| values[i] }` work correctly without extra arguments. Additionally, `:lsb` yields positions in ascending order, making `set_bit_positions` results immediately usable as array subscripts.
 
-The symbol values `:lsb` and `:msb` were chosen to leave room for future extensions (e.g. `:native`, `:network`) without a breaking change.
+The trade-off is that visual binary display (where the MSB is leftmost) requires `order: :msb` explicitly. This is preferred as columnar analytics and Arrow represent the primary production workload.
 
-As a consequence, `each_bit(order: :msb).to_a` is always exactly the reverse of `each_bit(order: :lsb).to_a`, and the same holds for `each_set_bit`.
+The symbol values `:lsb` and `:msb` leave room for future extensions (e.g. `:native`, `:network`) without breaking changes. As a consequence, `each_bit(order: :msb).to_a` is always the reverse of `each_bit.to_a`, and the same holds for `each_set_bit`.
 
 ### Naming convention: symmetry with `bytes` / `each_byte`
 
 The method names follow the same pattern as Ruby's built-in `String#bytes` and `String#each_byte`.
 
-`bytes` and `each_byte` are not independent operations — `bytes` **delegates** to `each_byte`. When called without a block, `bytes` returns `each_byte.to_a`. When called with a block, `bytes` forwards it to `each_byte` and returns `self`. The bit methods follow the same convention:
+`bytes` and `each_byte` are not independent operations --- `bytes` **delegates** to `each_byte`. When called without a block, `bytes` returns `each_byte.to_a`. When called with a block, `bytes` forwards it to `each_byte` and returns `self`. The bit methods follow the same convention:
 
 ```ruby
 # each_bit: Enumerator or self
@@ -700,14 +700,14 @@ s.set_bit_positions                   #=> Array of set-bit positions (same as ea
 s.set_bit_positions { |n| ... }       #=> self (s), same as each_set_bit { |n| ... }
 ```
 
-The word "set" is ambiguous in English (verb: mutate; adjective: already-set bits). `each_set_bit` resolves this — the `each_` prefix always signals iteration, never mutation. `set_bit_positions` names the return type explicitly, distinguishing it from `bits`.
+The word "set" is ambiguous in English (verb: mutate; adjective: already-set bits). `each_set_bit` resolves this --- the `each_` prefix always signals iteration, never mutation. `set_bit_positions` names the return type explicitly, distinguishing it from `bits`.
 
 | analogy | byte methods | bit methods |
 |---------|-------------|-------------|
 | iterate with block or Enumerator | `each_byte` | `each_bit` |
 | Array or block shorthand | `bytes` | `bits` |
-| iterate set-bit *positions* | — | `each_set_bit` |
-| Array or block shorthand for set-bit positions | — | `set_bit_positions` |
+| iterate set-bit *positions* | --- | `each_set_bit` |
+| Array or block shorthand for set-bit positions | --- | `set_bit_positions` |
 
 The mutation methods `set_bit(n)`, `clear_bit(n)`, and `flip_bit(n)` use unambiguous verb phrases and are not affected by this convention.
 
@@ -736,20 +736,6 @@ For the MSB-first domains, the relationship between their document-level bit ind
 flat position n used by this API is `n = 7 - (d % 8) + (d / 8) * 8`. This is mechanical but
 not obvious; if any of these domains become primary use cases, the naming and default
 choices should be revisited.
-
-### The `order:` default
-
-The default for `order:` is `:lsb`.
-
-The primary motivation is consistency with `Array#mask`. Arrow validity bitmaps are LSB-first by specification: element `i` lives at byte `i/8`, bit `i%8`, which is exactly the LSB-first addressing this library uses. With `:lsb` as the default, `values.mask(bitmap)` and `bitmap.each_set_bit { |i| values[i] }` work correctly without any explicit keyword argument.
-
-A secondary reason is that `:lsb` yields positions in ascending order (0, 1, 2, …), matching the natural order of array indices. `set_bit_positions` returns values that are immediately usable as array subscripts.
-
-The cost is that single-byte display — where `:msb` yields bits in left-to-right visual order — now requires `order: :msb` explicitly. This is a reasonable trade-off when Arrow and columnar analytics represent the primary production workload.
-
-The symbol values `:lsb` and `:msb` were chosen to leave room for future extensions (e.g. `:native`, `:network`) without a breaking change.
-
-As a consequence, `each_bit(order: :msb).to_a` is always exactly the reverse of `each_bit.to_a`, and the same holds for `each_set_bit`.
 
 ### Packed integer fields
 
@@ -813,7 +799,7 @@ end
 
 #### Memory efficiency
 
-Packed binary storage is already possible in Ruby today — the 8x reduction over character strings is not new. What is missing is ergonomic access. Without bit-level methods, reading a single pixel requires the shift-and-mask idiom shown above, and building a bitmap incrementally requires hand-written byte arithmetic. The friction is high enough that tools often choose the simpler `"0"`/`"1"` character format instead, paying the memory cost to avoid the code complexity.
+Packed binary storage is already possible in Ruby today --- the 8x reduction over character strings is not new. What is missing is ergonomic access. Without bit-level methods, reading a single pixel requires the shift-and-mask idiom shown above, and building a bitmap incrementally requires hand-written byte arithmetic. The friction is high enough that tools often choose the simpler `"0"`/`"1"` character format instead, paying the memory cost to avoid the code complexity.
 
 ```
 "01001111 01100001" (character string, 18 bytes for 16 pixels)
@@ -856,13 +842,13 @@ Arrow validity bitmap for 10 elements (byte[0] = 0b11111111, byte[1] = 0b0000001
   validity:  ok   ok   ok   ok   ok   ok   ok   ok   ok   ok
 ```
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit(order: :lsb)` yields valid element indices in ascending order. `Array#bitwise(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values — entirely in C with no per-element callback overhead.
+`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit(order: :lsb)` yields valid element indices in ascending order. `Array#bitwise(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values --- entirely in C with no per-element callback overhead.
 
 #### Arrow IPC serialization
 
 Arrow IPC (Inter-Process Communication) is the binary wire format used to transfer Arrow data between processes, language runtimes, and storage systems such as Parquet and Feather.
 
-Arrow supports zero-copy slicing in memory: slicing an array produces a lightweight object that references the original buffer with a non-zero `offset`. For a validity bitmap, this offset is measured in **bits** — the bitmap for a sliced column may start at an arbitrary bit position within a byte.
+Arrow supports zero-copy slicing in memory: slicing an array produces a lightweight object that references the original buffer with a non-zero `offset`. For a validity bitmap, this offset is measured in **bits** --- the bitmap for a sliced column may start at an arbitrary bit position within a byte.
 
 The IPC format, however, requires every buffer to be byte-aligned: element 0 of the serialized column must map to bit 0 of the first byte. Serializing a sliced array therefore requires re-packing the validity bitmap to eliminate the in-memory bit offset. `IO::Buffer#slice` operates at byte granularity and cannot perform this re-packing. `bit_slice` fills this gap:
 
@@ -897,7 +883,7 @@ For single-bit access the byte offset is already expressible through `n`. For bu
 
 #### IO::Buffer as the zero-copy complement
 
-CRuby's `IO::Buffer` is designed for exactly this scenario. `IO::Buffer#slice` returns a *view* into the original buffer — a new `IO::Buffer` object that shares the underlying memory without any copy. Operations on the slice write directly into the parent buffer:
+CRuby's `IO::Buffer` is designed for exactly this scenario. `IO::Buffer#slice` returns a *view* into the original buffer --- a new `IO::Buffer` object that shares the underlying memory without any copy. Operations on the slice write directly into the parent buffer:
 
 ```ruby
 buf    = IO::Buffer.map(File.open("data.arrow"))
@@ -950,8 +936,8 @@ Bit-level operations are common across languages, but they are typically exposed
 
 Python provides limited bit-level functionality:
 
-* `int.bit_count()` — population count (popcount)
-* `int.to_bytes()` / `int.from_bytes()` — conversion between integers and byte sequences
+* `int.bit_count()` --- population count (popcount)
+* `int.to_bytes()` / `int.from_bytes()` --- conversion between integers and byte sequences
 
 There is no standard abstraction for iterating over bits in a byte sequence or treating a bytes object as a bit array.
 
@@ -961,10 +947,10 @@ There is no standard abstraction for iterating over bits in a byte sequence or t
 
 Java provides `BitSet`, a dedicated mutable bit container:
 
-* `get(int index)` — read bit
-* `set(int index)` / `clear(int index)` / `flip(int index)` — mutate
-* `nextSetBit(int fromIndex)` — iterate set bits
-* `cardinality()` — population count
+* `get(int index)` --- read bit
+* `set(int index)` / `clear(int index)` / `flip(int index)` --- mutate
+* `nextSetBit(int fromIndex)` --- iterate set bits
+* `cardinality()` --- population count
 
 Iteration over set bits requires explicit looping:
 
@@ -991,9 +977,9 @@ The use of `Option<bool>` for `get` mirrors Ruby's `nil` return for out-of-range
 
 C++ offers `std::bitset` and `std::vector<bool>`:
 
-* `test(pos)` — read bit
-* `set(pos)` / `reset(pos)` / `flip(pos)` — mutate
-* `count()` — popcount
+* `test(pos)` --- read bit
+* `set(pos)` / `reset(pos)` / `flip(pos)` --- mutate
+* `count()` --- popcount
 
 These APIs are efficient but not integrated with standard iteration patterns, and naming tends toward technical terminology (`test`, `reset`).
 
@@ -1003,7 +989,7 @@ These APIs are efficient but not integrated with standard iteration patterns, an
 
 Go provides low-level bit operations via `math/bits`:
 
-* `bits.OnesCount(x)` — popcount
+* `bits.OnesCount(x)` --- popcount
 
 Bit arrays are typically implemented manually using slices of integers or bytes.
 
