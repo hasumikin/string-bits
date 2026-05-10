@@ -21,6 +21,12 @@ A_1MB     = Random.bytes(1_000_000)
 B_1MB     = Random.bytes(1_000_000)
 DATA_100K = Random.bytes(100_000)
 
+# Validity bitmap: long runs of valid rows (0xFF) punctuated by short null
+# bursts (0x00). Models Apache Arrow null bitmaps or sensor active/inactive
+# windows. Pattern: 100 bytes of 0xFF (800 ones) + 2 bytes of 0x00 (16 zeros).
+# ~1,960 runs total vs ~400,000 for random data.
+RLE_DATA = (("\xFF" * 100) + ("\x00" * 2)) * (100_000 / 102)
+
 COL_LABEL = 50
 COL_COUNT =  9
 
@@ -110,11 +116,15 @@ measure("Pure Ruby: manual byte loop + conditional push") {
   positions
 }
 
-# --- RLE (each_bit) ---
-section "run-length encoding (100KB = 800K bits)"
+# --- RLE ---
+# RLE_DATA: validity-bitmap pattern (~1,960 runs over ~100KB).
+# Allocations are dominated by [bit, len] pairs pushed to the result array,
+# so each approach allocates proportionally to run count, not bit count.
+# each_run's advantage over each_bit is CPU time (fewer block calls), not allocs.
+section "run-length encoding -- validity bitmap (~100KB, ~1,960 runs)"
 measure("Pure Ruby: each_byte + bit loop") {
   runs = []; current = nil; count = 0
-  DATA_100K.each_byte do |byte|
+  RLE_DATA.each_byte do |byte|
     8.times do |bit|
       b = (byte >> bit) & 1 == 1
       if b == current then count += 1
@@ -127,12 +137,17 @@ measure("Pure Ruby: each_byte + bit loop") {
 }
 measure("gem:       each_bit { block }") {
   runs = []; current = nil; count = 0
-  DATA_100K.each_bit(order: :lsb) do |b|
+  RLE_DATA.each_bit(order: :lsb) do |b|
     if b == current then count += 1
     else runs << [current, count] unless current.nil?; current = b; count = 1
     end
   end
   runs << [current, count] unless current.nil?
+  runs
+}
+measure("gem:       each_run { block }") {
+  runs = []
+  RLE_DATA.each_run { |bit, len| runs << [bit, len] }
   runs
 }
 
