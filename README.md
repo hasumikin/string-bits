@@ -18,7 +18,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no |
-| Array validity mask | `Array#bitmask`, `Array#bitmask!` | yes (`!`) / no |
+| Array validity mask | `Array#mask`, `Array#mask!` | yes (`!`) / no |
 
 <details>
 
@@ -574,11 +574,11 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 
 ### Array validity mask
 
-`Array#bitmask` applies a bitmap to an array, returning a new array of the same length where each element is either kept or replaced with `nil` according to the corresponding bit. `Array#bitmask!` performs the same operation in place.
+`Array#mask` applies a bitmap to an array, returning a new array of the same length where each element is either kept or replaced with `nil` according to the corresponding bit. `Array#mask!` performs the same operation in place.
 
 No Ruby block or `rb_yield` is involved — the operation is performed entirely in C, making it significantly faster than a Ruby-level `map` loop.
 
-#### `bitmask(bitmap, order: :lsb, invert: false) -> Array`
+#### `mask(bitmap, order: :lsb, invert: false) -> Array`
 
 Returns a new `Array`. Elements whose corresponding bit is 1 (for `invert: false`) or 0 (for `invert: true`) are kept; all others become `nil`.
 
@@ -587,15 +587,15 @@ data   = [1, 2, 3, 4]
 
 # LSB-first (default, Apache Arrow convention): 0b00001101 -> bits 0,2,3 set = elements 0,2,3 valid
 bitmap = "\x0D".b   # 0b00001101
-data.bitmask(bitmap)                        #=> [1, nil, 3, 4]
+data.mask(bitmap)                        #=> [1, nil, 3, 4]
 
 # MSB-first: 0b11010000 -> bits 7,6,4 set = elements 0,1,3 valid
 bitmap = "\xD0".b   # 0b11010000
-data.bitmask(bitmap, order: :msb)           #=> [1, 2, nil, 4]
+data.mask(bitmap, order: :msb)           #=> [1, 2, nil, 4]
 
 # invert: true — keep where bit is 0, nil where bit is 1
 bitmap = "\x0D".b
-data.bitmask(bitmap, invert: true)          #=> [nil, 2, nil, nil]
+data.mask(bitmap, invert: true)          #=> [nil, 2, nil, nil]
 ```
 
 Apache Arrow idiom — materialize an Arrow column with nulls applied:
@@ -606,16 +606,16 @@ bitmap = ("\x00" * ((n + 7) / 8)).b
 source_data.each_with_index { |v, i| bitmap.set_bit(i) if v }
 
 # Apply bitmap to a pre-fetched values array (no per-element rb_yield):
-result = values.bitmask(bitmap)
+result = values.mask(bitmap)
 ```
 
-#### `bitmask!(bitmap, order: :lsb, invert: false) -> self`
+#### `mask!(bitmap, order: :lsb, invert: false) -> self`
 
-Same as `bitmask` but modifies the array in place and returns `self`. Elements that would become `nil` are overwritten; valid elements are untouched.
+Same as `mask` but modifies the array in place and returns `self`. Elements that would become `nil` are overwritten; valid elements are untouched.
 
 ```ruby
 ary = [1, 2, 3, 4]
-ary.bitmask!("\x0D".b)   #=> [1, nil, 3, 4]  (LSB-first default)
+ary.mask!("\x0D".b)   #=> [1, nil, 3, 4]  (LSB-first default)
 ary                      #=> [1, nil, 3, 4]  (modified in place)
 ```
 
@@ -725,7 +725,7 @@ choices should be revisited.
 
 The default for `order:` is `:lsb`.
 
-The primary motivation is consistency with `Array#bitmask`. Arrow validity bitmaps are LSB-first by specification: element `i` lives at byte `i/8`, bit `i%8`, which is exactly the LSB-first addressing this library uses. With `:lsb` as the default, `values.bitmask(bitmap)` and `bitmap.each_set_bit { |i| values[i] }` work correctly without any explicit keyword argument.
+The primary motivation is consistency with `Array#mask`. Arrow validity bitmaps are LSB-first by specification: element `i` lives at byte `i/8`, bit `i%8`, which is exactly the LSB-first addressing this library uses. With `:lsb` as the default, `values.mask(bitmap)` and `bitmap.each_set_bit { |i| values[i] }` work correctly without any explicit keyword argument.
 
 A secondary reason is that `:lsb` yields positions in ascending order (0, 1, 2, …), matching the natural order of array indices. `set_bit_positions` returns values that are immediately usable as array subscripts.
 

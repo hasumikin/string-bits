@@ -1195,19 +1195,19 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
-/* Array#bitmask and Array#bitmask! --------------------------------------- */
+/* Array#mask and Array#mask! --------------------------------------- */
 
 /*
- * parse_bitmask_kwargs: extract bitmap, order:, and invert: from method arguments.
+ * parse_mask_kwargs: extract bitmap, order:, and invert: from method arguments.
  *
  * Porting to Ruby Core:
  *   1. Keep this as a `static` helper in array.c — it is only called by
- *      ary_bitmask and ary_bitmask_bang, so no header declaration is needed.
- *   2. Rename to ary_bitmask_kwargs or similar to follow array.c conventions
- *      (static helpers in array.c use the `ary_` prefix, not `rb_ary_`).
+ *      ary_mask and ary_mask_bang, so no header declaration is needed.
+ *   2. Rename to ary_mask_kwargs or similar to follow array.c conventions
+ *      (static helpers in array.c use the `ary_` prefix, not `rb_ary_`.
  */
 static void
-parse_bitmask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
+parse_mask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
                      int *msb_first_out, int *invert_out, int *is_integer_out)
 {
     VALUE bitmap, opts;
@@ -1263,11 +1263,11 @@ integer_get_bit(VALUE n, long i)
 }
 
 static VALUE
-rb_ary_bitmask(int argc, VALUE *argv, VALUE self)
+rb_ary_mask(int argc, VALUE *argv, VALUE self)
 {
     VALUE bitmap;
     int msb_first, invert, is_integer;
-    parse_bitmask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
+    parse_mask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
 
     long ary_len = RARRAY_LEN(self);
     const VALUE *src = RARRAY_CONST_PTR(self);
@@ -1299,11 +1299,11 @@ rb_ary_bitmask(int argc, VALUE *argv, VALUE self)
 }
 
 static VALUE
-rb_ary_bitmask_bang(int argc, VALUE *argv, VALUE self)
+rb_ary_mask_bang(int argc, VALUE *argv, VALUE self)
 {
     VALUE bitmap;
     int msb_first, invert, is_integer;
-    parse_bitmask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
+    parse_mask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
 
     long ary_len = RARRAY_LEN(self);
     rb_ary_modify(self);
@@ -1360,6 +1360,6 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_or!",           rb_str_bit_or_bang,       1);
     rb_define_method(rb_cString, "bit_xor",           rb_str_bit_xor,           1);
     rb_define_method(rb_cString, "bit_xor!",          rb_str_bit_xor_bang,      1);
-    rb_define_method(rb_cArray,  "bitmask",            rb_ary_bitmask,          -1);
-    rb_define_method(rb_cArray,  "bitmask!",           rb_ary_bitmask_bang,     -1);
+    rb_define_method(rb_cArray,  "mask",              rb_ary_mask,          -1);
+    rb_define_method(rb_cArray,  "mask!",             rb_ary_mask_bang,     -1);
 }
