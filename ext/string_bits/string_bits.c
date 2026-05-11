@@ -44,7 +44,7 @@ sb_popcount64(uint64_t x)
 /* ctz / clz helpers for set-bit iteration ---------------------------------- */
 
 static ID id_bracket;
-static VALUE sym_order, sym_lsb, sym_msb, sym_planes, sym_invert;
+static VALUE sym_order, sym_lsb, sym_msb, sym_with, sym_offset, sym_index, sym_invert;
 
 static inline int
 sb_ctz8(unsigned int x)
@@ -691,91 +691,92 @@ rb_str_bit_xor_bang(VALUE self, VALUE other)
 /* packed bit-field iteration ---------------------------------------------- */
 
 /*
- * ebs_extract: copy bitlen bits starting at bit_offset from src into a new String.
- * Layout is identical to bit_slice: LSB-first within each byte, zero-padded tail.
+ * extract_uint64: extract up to 64 bits starting at bit_offset from src as an
+ * unsigned 64-bit integer (LSB-first bit layout, matching bit_slice).
  *
  * Porting to Ruby Core:
- *   1. Move this helper into string.c alongside the bit_slice implementation.
- *   2. Share it with rb_str_bit_slice to avoid duplication.
- *   3. Remove the `static` qualifier so it can be called from array.c if needed.
+ *   1. Move into string.c alongside the bit_slice implementation.
+ *   2. Share with rb_str_bit_slice to avoid duplication.
  */
-static VALUE
-ebs_extract(const unsigned char *src, long src_len, long bit_offset,
-            long bitlen, long out_bytes, rb_encoding *enc)
+static uint64_t
+extract_uint64(const unsigned char *src, long src_len, long bit_offset, long bitlen)
 {
-    VALUE result = rb_str_buf_new(out_bytes);
-    rb_str_resize(result, out_bytes);
-    rb_enc_associate(result, enc);
-    unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
-
+    uint64_t val = 0;
     long byte_off = bit_offset >> 3;
-    int shift = (int)(bit_offset & 7);
-
-    if (shift == 0) {
-        memcpy(dst, src + byte_off, out_bytes);
+    int  shift    = (int)(bit_offset & 7);
+    int  n        = (shift + (int)bitlen + 7) / 8;
+    for (int i = 0; i < n; i++) {
+        if (byte_off + i < src_len)
+            val |= (uint64_t)src[byte_off + i] << (i * 8);
     }
-    else {
-        int anti_shift = 8 - shift;
-        for (long i = 0; i < out_bytes; i++) {
-            unsigned char lo = src[byte_off + i];
-            unsigned char hi = (byte_off + i + 1 < src_len) ? src[byte_off + i + 1] : 0;
-            dst[i] = (unsigned char)((lo >> shift) | (hi << anti_shift));
-        }
-    }
-
-    int tail_bits = (int)(bitlen & 7);
-    if (tail_bits) {
-        dst[out_bytes - 1] &= (unsigned char)((1u << tail_bits) - 1);
-    }
-
-    return result;
+    val >>= shift;
+    if (bitlen < 64) val &= (UINT64_C(1) << bitlen) - 1;
+    return val;
 }
 
-/* String#each_bit_slice(bitlen, planes: 1, order: :lsb) { |*planes| } -> self
- * String#each_bit_slice(bitlen, planes: 1, order: :lsb) -> Enumerator
+/* String#each_bit_fields(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self
+ * String#each_bit_fields(*bitlens, with: nil, order: :lsb) -> Enumerator
  *
- * Iterates over the string in consecutive bitlen-bit chunks, grouping `planes`
- * chunks per block call. Each chunk is passed to the block as a packed String
- * with the same LSB-first bit layout as bit_slice.
+ * Iterates over the string as a sequence of packed bit-field records. Each
+ * positional argument specifies the width (in bits) of one field in the record.
+ * On each iteration, one Integer per field is yielded (LSB-first bit layout).
+ * Each bitlen must be in the range 1..64.
  *
- * order: :lsb (default) iterates from the first chunk forward.
- * order: :msb iterates from the last complete group backward.
+ * with: :offset -- appends the bit offset of the current record to the block args.
+ * with: :index  -- appends the 0-based yield-order index to the block args.
  *
- * Incomplete trailing bits (when bytesize*8 is not divisible by bitlen*planes)
- * are silently dropped, matching the behavior of each_slice on Arrays.
+ * order: :lsb (default) -- iterates from the first record forward.
+ * order: :msb           -- iterates from the last complete record backward.
+ *
+ * Incomplete trailing bits (when bytesize*8 is not a multiple of sum(bitlens))
+ * are silently dropped, matching the behavior of Enumerable#each_slice.
  *
  * Porting to Ruby Core:
- *   1. Move ebs_extract and this function into string.c.
+ *   1. Move extract_uint64 and this function into string.c.
  *   2. Register with rb_define_method in Init_String().
- *   3. Replace ALLOCA_N with a stack array for small `planes` and heap otherwise.
+ *   3. Replace ALLOCA_N with stack arrays for small field counts and heap otherwise.
  */
 static VALUE
-rb_str_each_bit_slice(int argc, VALUE *argv, VALUE self)
+rb_str_each_bit_fields(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    VALUE vbitlen, opts;
-    rb_scan_args(argc, argv, "1:", &vbitlen, &opts);
+    VALUE rest, opts;
+    rb_scan_args(argc, argv, "*:", &rest, &opts);
 
-    if (!rb_integer_type_p(vbitlen)) {
-        rb_raise(rb_eTypeError, "bitlen must be an integer");
-    }
-    long bitlen = NUM2LONG(vbitlen);
-    if (bitlen <= 0) {
-        rb_raise(rb_eArgError, "bitlen must be positive");
+    long num_fields = RARRAY_LEN(rest);
+    if (num_fields == 0) {
+        rb_raise(rb_eArgError, "wrong number of arguments (given 0, expected 1+)");
     }
 
-    long planes = 1;
+    long *bitlens = ALLOCA_N(long, num_fields);
+    long step = 0;
+    for (long f = 0; f < num_fields; f++) {
+        VALUE v = RARRAY_AREF(rest, f);
+        if (!rb_integer_type_p(v)) {
+            rb_raise(rb_eTypeError, "bitlen must be an integer");
+        }
+        long bl = NUM2LONG(v);
+        if (bl <= 0) {
+            rb_raise(rb_eArgError, "bitlen must be positive");
+        }
+        if (bl > 64) {
+            rb_raise(rb_eArgError, "bitlen must be <= 64 (got %ld)", bl);
+        }
+        bitlens[f] = bl;
+        step += bl;
+    }
 
+    int with_offset = 0, with_index = 0;
     if (!NIL_P(opts)) {
-        VALUE v_planes = rb_hash_aref(opts, sym_planes);
-        if (!NIL_P(v_planes)) {
-            if (!rb_integer_type_p(v_planes)) {
-                rb_raise(rb_eTypeError, "planes must be an integer");
-            }
-            planes = NUM2LONG(v_planes);
-            if (planes <= 0) {
-                rb_raise(rb_eArgError, "planes must be positive");
+        VALUE v_with = rb_hash_aref(opts, sym_with);
+        if (!NIL_P(v_with)) {
+            if (v_with == sym_offset) {
+                with_offset = 1;
+            } else if (v_with == sym_index) {
+                with_index = 1;
+            } else {
+                rb_raise(rb_eArgError, "with: must be :offset or :index");
             }
         }
     }
@@ -783,35 +784,37 @@ rb_str_each_bit_slice(int argc, VALUE *argv, VALUE self)
 
     long src_len = RSTRING_LEN(self);
     long total_bits = src_len * 8;
-    long step = bitlen * planes;
-    long out_bytes = (bitlen + 7) / 8;
     long iterations = total_bits / step;
 
-    rb_encoding *enc = rb_enc_get(self);
-    VALUE *plane_vals = ALLOCA_N(VALUE, planes);
+    long yield_count = num_fields + (with_offset || with_index ? 1 : 0);
+    VALUE *field_vals = ALLOCA_N(VALUE, yield_count);
 
+    long yield_iter = 0;
     if (!msb_first) {
         for (long iter = 0; iter < iterations; iter++) {
             long base_bit = iter * step;
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            for (long p = 0; p < planes; p++) {
-                plane_vals[p] = ebs_extract(src, src_len,
-                                            base_bit + p * bitlen,
-                                            bitlen, out_bytes, enc);
+            long field_bit = base_bit;
+            for (long f = 0; f < num_fields; f++) {
+                field_vals[f] = ULL2NUM(extract_uint64(src, src_len, field_bit, bitlens[f]));
+                field_bit += bitlens[f];
             }
-            rb_yield_values2((int)planes, plane_vals);
+            if (with_offset) field_vals[num_fields] = LONG2NUM(base_bit);
+            if (with_index)  field_vals[num_fields] = LONG2NUM(yield_iter++);
+            rb_yield_values2((int)yield_count, field_vals);
         }
-    }
-    else {
+    } else {
         for (long iter = iterations - 1; iter >= 0; iter--) {
             long base_bit = iter * step;
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            for (long p = 0; p < planes; p++) {
-                plane_vals[p] = ebs_extract(src, src_len,
-                                            base_bit + p * bitlen,
-                                            bitlen, out_bytes, enc);
+            long field_bit = base_bit;
+            for (long f = 0; f < num_fields; f++) {
+                field_vals[f] = ULL2NUM(extract_uint64(src, src_len, field_bit, bitlens[f]));
+                field_bit += bitlens[f];
             }
-            rb_yield_values2((int)planes, plane_vals);
+            if (with_offset) field_vals[num_fields] = LONG2NUM(base_bit);
+            if (with_index)  field_vals[num_fields] = LONG2NUM(yield_iter++);
+            rb_yield_values2((int)yield_count, field_vals);
         }
     }
 
@@ -1192,13 +1195,37 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         src_bit_len = len;
     }
     else if (n_pos == 3) {
-        /* bit_splice(bit_index, bit_length, str) */
+        /* bit_splice(bit_index, bit_length, str_or_integer) */
         if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1)) {
             rb_raise(rb_eTypeError, "bit index and length must be integers");
         }
         dst_bit_off = NUM2LONG(v0);
         dst_bit_len = NUM2LONG(v1);
         if (dst_bit_off < 0) dst_bit_off += dst_total;
+
+        if (rb_integer_type_p(v2)) {
+            /* Integer source: pack lower dst_bit_len bits (upper bits truncated). */
+            if (dst_bit_len < 1 || dst_bit_len > 64) {
+                rb_raise(rb_eArgError,
+                         "bit_splice: bit length must be 1..64 when source is Integer"
+                         " (got %ld)", dst_bit_len);
+            }
+            if (msb_first) dst_bit_off = dst_total - dst_bit_off - dst_bit_len;
+            if (dst_bit_off < 0 || dst_bit_off + dst_bit_len > dst_total) {
+                rb_raise(rb_eIndexError,
+                         "bit_splice: destination range [%ld, %ld] out of bounds"
+                         " (total %ld bits)", dst_bit_off, dst_bit_len, dst_total);
+            }
+            uint64_t ival = FIXNUM_P(v2) ? (uint64_t)FIX2LONG(v2) : NUM2ULL(v2);
+            if (dst_bit_len < 64) ival &= (UINT64_C(1) << dst_bit_len) - 1;
+            unsigned char tmp[8] = {0};
+            for (int i = 0; i < 8; i++) tmp[i] = (unsigned char)(ival >> (i * 8));
+            rb_str_modify(self);
+            bit_copy_core((unsigned char *)RSTRING_PTR(self), dst_bit_off,
+                          tmp, 8, 0, dst_bit_len);
+            return self;
+        }
+
         str = v2;
         Check_Type(str, T_STRING);
         src_bit_off = 0;
@@ -1409,7 +1436,9 @@ Init_string_bits(void)
     sym_order  = ID2SYM(rb_intern("order"));
     sym_lsb    = ID2SYM(rb_intern("lsb"));
     sym_msb    = ID2SYM(rb_intern("msb"));
-    sym_planes = ID2SYM(rb_intern("planes"));
+    sym_with   = ID2SYM(rb_intern("with"));
+    sym_offset = ID2SYM(rb_intern("offset"));
+    sym_index  = ID2SYM(rb_intern("index"));
     sym_invert = ID2SYM(rb_intern("invert"));
 
     rb_define_method(rb_cString, "bit_at",            rb_str_bit_at,           -1);
@@ -1420,7 +1449,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
-    rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
+    rb_define_method(rb_cString, "each_bit_fields",   rb_str_each_bit_fields,  -1);
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,          -1);

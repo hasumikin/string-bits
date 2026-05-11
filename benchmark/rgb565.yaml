@@ -1,0 +1,74 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  # 100_000 RGB565 pixels = 200_000 bytes.
+  # Layout (LSB-first, 16 bits per pixel):
+  #   bits  0-4  : blue  (5 bits)
+  #   bits  5-10 : green (6 bits)
+  #   bits 11-15 : red   (5 bits)
+  N_PIXELS = 100_000
+  DATA = Random.bytes(N_PIXELS * 2)
+  GRAY4_SIZE = N_PIXELS / 2   # two 4-bit values per byte
+
+benchmark:
+  # --- R <-> B channel swap (in-place) ---
+
+  # Pure Ruby: read each 16-bit word, mask/shift the three channels, write back.
+  swap_baseline: |
+    result = DATA.dup
+    N_PIXELS.times do |i|
+      lo    = result.getbyte(i * 2)
+      hi    = result.getbyte(i * 2 + 1)
+      pixel = lo | (hi << 8)
+      b     = pixel & 0x1F
+      g     = (pixel >> 5) & 0x3F
+      r     = (pixel >> 11) & 0x1F
+      new_pixel = r | (g << 5) | (b << 11)
+      result.setbyte(i * 2,     new_pixel & 0xFF)
+      result.setbyte(i * 2 + 1, (new_pixel >> 8) & 0xFF)
+    end
+    result
+
+  # string_bits: each_bit_fields unpacks the three channels as integers; bit_splice
+  # writes only the two changed fields back, leaving green untouched.
+  swap_string_bits: |
+    result = DATA.dup
+    result.each_bit_fields(5, 6, 5, with: :offset, order: :lsb) do |b, _g, r, offset|
+      result.bit_splice(offset,      5, r)
+      result.bit_splice(offset + 11, 5, b)
+    end
+    result
+
+  # --- RGB565 -> 4-bit grayscale ---
+
+  # Pure Ruby: manual word decomposition, channel scaling, nibble packing.
+  gray4_baseline: |
+    gray4 = "\x00".b * GRAY4_SIZE
+    N_PIXELS.times do |i|
+      lo    = DATA.getbyte(i * 2)
+      hi    = DATA.getbyte(i * 2 + 1)
+      pixel = lo | (hi << 8)
+      b5    = pixel & 0x1F
+      g6    = (pixel >> 5) & 0x3F
+      r5    = (pixel >> 11) & 0x1F
+      gray8 = ((r5 * 255 / 31) + (g6 * 255 / 63) + (b5 * 255 / 31)) / 3
+      g4    = gray8 >> 4
+      bi    = i >> 1
+      if i.even?
+        gray4.setbyte(bi, (gray4.getbyte(bi) & 0xF0) | g4)
+      else
+        gray4.setbyte(bi, (gray4.getbyte(bi) & 0x0F) | (g4 << 4))
+      end
+    end
+    gray4
+
+  # string_bits: each_bit_fields delivers three typed fields per pixel;
+  # bit_splice packs the 4-bit result into the output buffer by index.
+  gray4_string_bits: |
+    gray4 = "\x00".b * GRAY4_SIZE
+    DATA.each_bit_fields(5, 6, 5, with: :index, order: :lsb) do |b, g, r, index|
+      gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
+      gray4.bit_splice(index * 4, 4, gray8 >> 4)
+    end
+    gray4

@@ -1,0 +1,46 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  # Packed sensor telemetry stream (e.g. UART/SPI from an environmental sensor):
+  #   temperature: 12 bits (0.1 deg precision, range 0-409.5)
+  #   humidity:    10 bits (0.1% precision,   range 0-102.3)
+  #   CO2:         14 bits (ppm,               range 0-16383)
+  #
+  # One frame = 36 bits = 4.5 bytes.  Frames are NOT byte-aligned: even frames
+  # start at a byte boundary; odd frames start 4 bits into the preceding byte.
+  # 45_000 bytes = exactly 10_000 frames (45_000 * 8 / 36 = 10_000).
+  N_FRAMES = 10_000
+  DATA = Random.bytes(N_FRAMES * 36 / 8)
+
+benchmark:
+  # Pure Ruby: two hard-coded extraction paths for the two alignment cases.
+  # Even frames (i.even?): fields land on nibble boundaries -- straightforward.
+  # Odd frames: every field is shifted 4 bits, requiring different masks/shifts.
+  baseline: |
+    total_temp = 0; total_hum = 0; total_co2 = 0
+    N_FRAMES.times do |i|
+      b = i * 36 >> 3
+      if i.even?
+        temp = DATA.getbyte(b)    | ((DATA.getbyte(b+1) & 0x0F) << 8)
+        hum  = (DATA.getbyte(b+1) >> 4) | ((DATA.getbyte(b+2) & 0x3F) << 4)
+        co2  = (DATA.getbyte(b+2) >> 6)  | (DATA.getbyte(b+3) << 2) | ((DATA.getbyte(b+4) & 0x0F) << 10)
+      else
+        temp = (DATA.getbyte(b)   >> 4) |  (DATA.getbyte(b+1) << 4)
+        hum  =  DATA.getbyte(b+2) | ((DATA.getbyte(b+3) & 0x03) << 8)
+        co2  = (DATA.getbyte(b+3) >> 2) |  (DATA.getbyte(b+4) << 6)
+      end
+      total_temp += temp; total_hum += hum; total_co2 += co2
+    end
+    [total_temp, total_hum, total_co2]
+
+  # string_bits: each_bit_fields handles both alignment cases uniformly,
+  # yielding integers directly -- no manual bit extraction needed.
+  string_bits: |
+    total_temp = 0; total_hum = 0; total_co2 = 0
+    DATA.each_bit_fields(12, 10, 14) do |temp, hum, co2|
+      total_temp += temp
+      total_hum  += hum
+      total_co2  += co2
+    end
+    [total_temp, total_hum, total_co2]

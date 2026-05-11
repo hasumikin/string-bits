@@ -10,12 +10,13 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 
 | category | methods | zero-copy | `order:` keyword param |
 |----------|---------|-----------|----------|
-| read | `bit_at`, `bit_count` | yes | `bit_at` only |
+| read | `bit_at` | yes | yes |
+| read | `bit_count` | yes | no |
 | iterate bits | `each_bit`, `bits` | yes | yes |
 | iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes | yes |
-|  extract | `bit_slice` | no | yes |
+| extract | `bit_slice` | no | yes |
 | multi-bit mutation | `bit_splice` | yes | yes |
-| packed bit-field iteration | `each_bit_slice` | no | yes |
+| packed bit-field iteration | `each_bit_fields` | no | yes |
 | run-length iteration | `each_bit_run`, `bit_run_count` | yes | yes |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | yes |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes | no |
@@ -214,10 +215,11 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 
 #### `bit_splice(bit_index, bit_length, str, order: :lsb) -> self`
 #### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, order: :lsb) -> self`
+#### `bit_splice(bit_index, bit_length, integer, order: :lsb) -> self`
 #### `bit_splice(range, str, order: :lsb) -> self`
 #### `bit_splice(range, str, str_range, order: :lsb) -> self`
 
-The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
+The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` (or the lower `bit_length` bits of an `Integer`) into `self` starting at flat bit position `bit_index`.
 
 `order: :lsb` (default) counts from the first bit. `order: :msb` counts from the last bit.
  The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
@@ -316,77 +318,6 @@ end
 
 ---
 
-#### `each_bit_slice(bitlen, planes: 1, order: :lsb) { |*slices| } -> self`
-#### `each_bit_slice(bitlen, planes: 1, order: :lsb) -> Enumerator`
-
-Iterates over the string in consecutive `bitlen`-bit windows, grouping `planes` windows per block call. Each window is passed to the block as a packed `String` using the same LSB-first bit layout as `bit_slice`. Without a block, returns an `Enumerator`.
-
-Incomplete trailing bits --- when `bytesize * 8` is not a multiple of `bitlen * planes` --- are silently dropped, matching the behavior of `Enumerable#each_slice`.
-
-```
-order: :lsb (default)  -- windows yielded left-to-right (ascending bit position)
-order: :msb            -- windows yielded right-to-left (descending bit position)
-```
-
-```ruby
-data = "\xAA\xCC"   # 16 bits
-
-data.each_bit_slice(8).to_a
-#=> ["\xAA", "\xCC"]   # two 8-bit slices
-
-data.each_bit_slice(8, planes: 2).to_a
-#=> [["\xAA", "\xCC"]] # one iteration, two planes per call
-```
-
-**12-bit packed ADC / sensor data --- the primary motivation**
-
-Embedded systems, audio codecs, and image sensors routinely pack measurements as 12-bit values into contiguous byte streams. This format is ubiquitous: it appears in ADC raw capture buffers, I2S / PDM audio frames, CAN bus sensor payloads, and MIPI CSI-2 RAW12 image data. Because 12 is not a multiple of 8, there is no single-byte alignment --- two 12-bit samples share a middle byte, and extracting them by hand requires careful shift arithmetic that is both tedious to write and error-prone.
-
-`each_bit_slice` makes 12-bit (and any other fixed-width) packed formats first-class.
-For multi-channel data (stereo audio, RGB sensor triplets, dual-ADC boards), the `planes:` keyword groups consecutive samples into a single block call, so the caller receives all channels for one sample point at once without extra bookkeeping.
-
-```ruby
-bitlen = 12
-
-# Dual-channel 12-bit ADC: samples packed as ch0|ch1|ch0|ch1|...
-adc_buf.each_bit_slice(bitlen, planes: 2, order: :lsb) do |ch0, ch1|
-  # ch0 and ch1 are Strings; bit_at(i) reads the i-th bit (LSB-first)
-  voltage0 = ch0_to_voltage(ch0)
-  voltage1 = ch1_to_voltage(ch1)
-  record(voltage0, voltage1)
-end
-```
-
-The `planes:` keyword also enables efficient half-block rendering, as used in bitmap fonts and braille displays: one iteration delivers two scan-lines simultaneously, so the vertical combination (upper/lower half-block characters) can be computed without maintaining external state between calls:
-
-```ruby
-bitlen = 12
-
-data.each_bit_slice(bitlen, planes: 2, order: :lsb) do |plane0, plane1|
-  line = ""
-  i = 0
-  while i < bitlen
-    case [plane0.bit_at(i), plane1.bit_at(i)]
-    in [true,  true]  then line << "\xE2\x96\x88"  # Full Block U+2588
-    in [true,  false] then line << "\xE2\x96\x80"  # Upper Half Block U+2580
-    in [false, true]  then line << "\xE2\x96\x84"  # Lower Half Block U+2584
-    else                   line << " "
-    end
-    i += 1
-  end
-  puts line
-end
-```
-
-Each extracted slice is a plain `String`, so `bit_at`, `each_bit`, `bit_count`, and all other bit methods apply directly --- no intermediate conversion or unpacking step required.
-This is what makes the API worthwhile: the same tool that reads Arrow validity bitmaps also decodes packed sensor frames, with no new types and no extra allocation beyond the slice strings themselves.
-
-**`planes:` vs `.each_slice` chaining**
-
-The idiomatic alternative, `each_bit_slice(bitlen).each_slice(planes) { |arr| }`, is functionally equivalent but allocates one `Array` per group to hold the slices before yielding them. For a 30 KB buffer with 12-bit slices and `planes: 2` that is 10,000 extra short-lived Arrays. The built-in `planes:` keyword eliminates those entirely by yielding all channels in a single `rb_yield_values2` call. Benchmarks show approximately **1.6x throughput** and **33% fewer heap objects** compared with the chained form.
-
----
-
 #### `each_bit_run(order: :lsb) { |bit, len| } -> self`
 #### `each_bit_run(order: :lsb) -> Enumerator`
 
@@ -421,15 +352,78 @@ runs << [current, count] unless current.nil?
 runs = data.each_bit_run(order: :lsb).to_a
 ```
 
-Performance characteristics for random data (~50% density, average run length ≈ 2):
+---
 
-| | Ruby | YJIT |
-|---|---|---|
-| baseline (byte loop) | 1.0x | 1.0x |
-| `each_bit` + Ruby state machine | 1.4x | 0.8x |
-| `each_bit_run` | **4.3x** | **1.5x** |
+#### `each_bit_fields(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self`
+#### `each_bit_fields(*bitlens, with: nil, order: :lsb) -> Enumerator`
 
-For structured data with longer runs (sparse validity bitmaps, sensor bursts, run-length compressed streams) the speedup is proportional to average run length --- a 64-bit run of zeros is resolved in a single `ctzll` call.
+Iterates over the string as a sequence of packed bit-field records. Each positional argument specifies the width (in bits) of one field in the record. On each iteration, one value per field is yielded as an `Integer` (LSB-first). Each bitlen must be between 1 and 64. Without a block, returns an `Enumerator`.
+
+**Integer width and portability.** The 64-bit limit reflects the `uint64_t` extraction used in this CRuby implementation. On mruby, `mrb_int` is either 32-bit (`MRB_INT32`, common on microcontrollers) or 64-bit (`MRB_INT64`). mruby does have a BigInt, but it is an optional gem rather than a core type. For core compatibility --- i.e., without assuming `MRB_USE_BIGINT=1` is defined --- a portable implementation should enforce `bitlen <= MRB_INT_BIT - 1`, yielding at most 31 or 63 bits depending on the build. Whether CRuby should adopt the same `SIZEOF_LONG * 8 - 1` cap (63 on 64-bit systems) for cross-implementation consistency is an open question: it would sacrifice the ability to yield a full 64-bit unsigned field, which CRuby can always represent via Bignum.
+
+Incomplete trailing bits --- when `bytesize * 8` is not a multiple of `sum(bitlens)` --- are silently dropped, matching the behavior of `Enumerable#each_slice`.
+
+```
+order: :lsb (default)  -- records yielded left-to-right (ascending bit position)
+order: :msb            -- records yielded right-to-left (descending bit position)
+with: :offset          -- appends the bit offset of the current record to the block args
+with: :index           -- appends the 0-based yield-order index to the block args
+```
+
+```ruby
+data = "\xAA\xCC"   # 16 bits
+
+data.each_bit_fields(8).to_a
+#=> [0xAA, 0xCC]           # two single-field records
+
+data.each_bit_fields(8, 8).to_a
+#=> [[0xAA, 0xCC]]         # one record with two fields
+```
+
+**RGB565 pixel manipulation**
+
+`with: :offset` provides the bit offset of the current record so you can write back into the source with `bit_splice`. `with: :index` provides the 0-based iteration count for addressing an output buffer.
+
+```ruby
+# eg1: Swap R and B channels in an RGB565 buffer
+# RGB565 LSB-first layout: bits 0-4 = blue (5), bits 5-10 = green (6), bits 11-15 = red (5)
+rgb565data.each_bit_fields(5, 6, 5, with: :offset, order: :lsb) do |b, _g, r, offset|
+  # b, r are Integers; offset is the bit position of the start of this pixel
+  rgb565data.bit_splice(offset,      5, r)  # write red into the blue field
+  rgb565data.bit_splice(offset + 11, 5, b)  # write blue into the red field
+end
+
+# eg2: Convert RGB565 to 4-bit grayscale
+gray4data = "\x00" * (rgb565data.bytesize / 4)
+rgb565data.each_bit_fields(5, 6, 5, with: :index, order: :lsb) do |b, g, r, index|
+  gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
+  gray4data.bit_splice(index * 4, 4, gray8 >> 4)
+end
+```
+
+The half-block rendering pattern used in bitmap fonts and braille displays also benefits: two scan-lines are delivered simultaneously so the vertical combination can be computed without maintaining external state between calls:
+
+```ruby
+bitlen = 12
+
+data.each_bit_fields(bitlen, bitlen, order: :lsb) do |plane0, plane1|
+  line = ""
+  i = 0
+  while i < bitlen
+    case [(plane0 >> i) & 1, (plane1 >> i) & 1]
+    in [1, 1] then line << "\xE2\x96\x88"  # Full Block U+2588
+    in [1, 0] then line << "\xE2\x96\x80"  # Upper Half Block U+2580
+    in [0, 1] then line << "\xE2\x96\x84"  # Lower Half Block U+2584
+    else           line << " "
+    end
+    i += 1
+  end
+  puts line
+end
+```
+
+Each extracted field is a plain `Integer`, so arithmetic on channel values and direct use with `bit_splice` require no intermediate conversion or packing step.
+This is what makes the API worthwhile: the same tool that reads Arrow validity bitmaps also decodes packed sensor frames, with no new types and zero heap allocations per field.
 
 ---
 
@@ -739,73 +733,49 @@ would need to commit to a byte order for multi-byte fields (little-endian vs big
 the extracted field), making it more complex than the methods in this proposal. This is noted
 as a potential direction rather than a current commitment.
 
-### mruby / PicoRuby: Bitmap Font Rendering
+### IoT Sensor Telemetry: Non-Byte-Aligned Packed Frames
 
 <details>
 
-<summary>mruby / PicoRuby: Bitmap Font Rendering</summary>
+<summary>IoT Sensor Telemetry: Non-Byte-Aligned Packed Frames</summary>
 
-Bitmap font libraries such as [picoruby-terminus](https://github.com/picoruby/picoruby-terminus) and [picoruby-rapicco](https://github.com/picoruby/picoruby-rapicco) store glyph data as packed binary strings and render them pixel-by-pixel. The current rendering hot path (e.g. `Rapicco::Slide#render_slide`) tests each bit with a shift-and-mask idiom:
+Compact binary telemetry protocols pack multiple sensor readings into sub-byte-aligned fields to minimize transmission overhead. A typical environmental sensor might encode three measurements into a 36-bit frame:
+
+```
+bits  0-11 : temperature  (12 bits, 0.1 deg resolution, 0-409.5)
+bits 12-21 : humidity     (10 bits, 0.1% resolution, 0-102.3)
+bits 22-35 : CO2          (14 bits, ppm, 0-16383)
+```
+
+36 bits = 4.5 bytes, so frames are **not byte-aligned**: even frames start at a byte boundary, odd frames start 4 bits into the preceding byte. Extracting fields with pure Ruby requires maintaining two separate code paths:
 
 ```ruby
-# current code in picoruby-rapicco/mrblib/slide.rb
-scan_line_upper = glyphs[g][l * 2]
-scan_line_lower = glyphs[g][l * 2 + 1]
-shift = width - 1
-while 0 <= shift
-  if (scan_line_upper >> shift) & 1 == 1
-    if (scan_line_lower >> shift) & 1 == 1
-      print "\xE2\x96\x88"  # Full Block
-    else
-      print "\xE2\x96\x80"  # Upper Half Block
-    end
+# Pure Ruby: two hard-coded extraction paths for the two alignment cases.
+N_FRAMES.times do |i|
+  b = i * 36 >> 3
+  if i.even?
+    temp = DATA.getbyte(b)    | ((DATA.getbyte(b+1) & 0x0F) << 8)
+    hum  = (DATA.getbyte(b+1) >> 4) | ((DATA.getbyte(b+2) & 0x3F) << 4)
+    co2  = (DATA.getbyte(b+2) >> 6)  | (DATA.getbyte(b+3) << 2) | ((DATA.getbyte(b+4) & 0x0F) << 10)
   else
-    if (scan_line_lower >> shift) & 1 == 1
-      print "\xE2\x96\x84"  # Lower Half Block
-    else
-      print " "
-    end
+    temp = (DATA.getbyte(b)   >> 4) |  (DATA.getbyte(b+1) << 4)
+    hum  =  DATA.getbyte(b+2) | ((DATA.getbyte(b+3) & 0x03) << 8)
+    co2  = (DATA.getbyte(b+3) >> 2) |  (DATA.getbyte(b+4) << 6)
   end
-  shift -= 1
+  process(temp, hum, co2)
 end
 ```
 
-Once these methods are available, glyph data stored as a packed binary String can be queried directly. `bit_at` returns a boolean, eliminating the `& 1 == 1` pattern. `each_bit(order: :msb)` yields pixels left-to-right in natural rendering order (MSB = leftmost pixel):
+`each_bit_fields` handles both alignment cases uniformly --- the bit offset arithmetic is done once in C, and the block always receives three typed integers:
 
 ```ruby
-# with String bit operations
-glyph.each_bit(order: :msb).each_slice(width) do |row|
-  upper_row, lower_row = row, next_row
-  upper_row.zip(lower_row).each do |upper, lower|
-    print case [upper, lower]
-          when [true,  true]  then "\xE2\x96\x88"
-          when [true,  false] then "\xE2\x96\x80"
-          when [false, true]  then "\xE2\x96\x84"
-          else                     " "
-          end
-  end
+# each_bit_fields: alignment is handled transparently.
+DATA.each_bit_fields(12, 10, 14) do |temp, hum, co2|
+  process(temp, hum, co2)
 end
 ```
 
-#### Memory efficiency
-
-Packed binary storage is already possible in Ruby today --- the 8x reduction over character strings is not new. What is missing is ergonomic access. Without bit-level methods, reading a single pixel requires the shift-and-mask idiom shown above, and building a bitmap incrementally requires hand-written byte arithmetic. The friction is high enough that tools often choose the simpler `"0"`/`"1"` character format instead, paying the memory cost to avoid the code complexity.
-
-```
-"01001111 01100001" (character string, 18 bytes for 16 pixels)
- vs
-"\x4F\x61"         (packed binary,     2 bytes for 16 pixels)
-```
-
-On a microcontroller with tens of kilobytes of RAM, this trade-off is real. The proposed methods remove the ergonomic barrier: `set_bit` builds packed bitmaps incrementally with no byte arithmetic, and `bit_at` / `each_bit` read them back without intermediate allocation. Packed binary becomes as natural to work with as any other format, making the memory saving achievable in practice.
-
-#### Glyph mask operations
-
-Applying a clipping mask or combining two bitmap layers (e.g. a glyph over a background pattern) becomes a single `bit_and` call instead of a byte-by-byte loop:
-
-```ruby
-clipped = glyph_bitmap.bit_and(clip_mask)
-```
+The two versions produce identical results. The `each_bit_fields` version eliminates the alignment branch entirely, and the yielded integers can be used directly in arithmetic without any further unpacking.
 
 </details>
 
@@ -850,7 +820,7 @@ ipc_validity = validity_bitmap.bit_slice(5, 100)
 
 This is the operation that bridges the non-byte-aligned in-memory representation that Arrow uses for zero-copy slicing to the byte-aligned form required by the IPC format.
 
-### #Why no byte-offset parameter?
+#### Why no byte-offset parameter?
 
 Apache Arrow IPC messages pack multiple column buffers into a single contiguous allocation:
 
