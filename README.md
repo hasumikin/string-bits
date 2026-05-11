@@ -643,6 +643,22 @@ All methods share a single flat numbering scheme: **position N** lives in `byte[
 
 Within each byte, the **LSB is the lower-numbered position**. Bytes are numbered from the start of the string, so `byte[0]` always holds positions 0-7.
 
+### Error behavior for out-of-range bit indices
+
+Two distinct categories of "out of range" are handled differently.
+
+**String range exceeded (Fixnum beyond the string's bit length)** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors Ruby's own `String#[]` (returns `nil` for out-of-bounds reads) and `String#setbyte` (raises `IndexError` for out-of-bounds writes).
+
+**System-unrepresentable index (Bignum)** --- all methods raise `ArgumentError`. A `Bignum` cannot be converted to a C `long` in a portable way: on LLP64 platforms (Windows), `sizeof(long) == 4`, so any `Bignum > INT32_MAX` would overflow, while on LP64 (Linux/macOS) the limit is `INT64_MAX`. Rather than letting this platform dependency surface as an inconsistent `RangeError`, the implementation detects Bignums explicitly and raises `ArgumentError` uniformly. In practice, no real string can hold enough bytes to make a Bignum a valid index, so the restriction carries no practical cost.
+
+```ruby
+s = "\xFF"
+s.bit_at(100)       #=> nil         (Fixnum, out of string range)
+s.bit_at(2**100)    #=> ArgumentError (Bignum, system-unrepresentable)
+s.set_bit(100)      #=> IndexError   (Fixnum, out of string range)
+s.set_bit(2**100)   #=> ArgumentError (Bignum, system-unrepresentable)
+```
+
 ### The `order:` parameter
 
 The `order:` keyword controls **interpretation and traversal direction**. It defines which bit is considered "first" (index 0).

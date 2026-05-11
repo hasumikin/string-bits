@@ -130,22 +130,21 @@ class TestSetClearFlipBit < Minitest::Test
     assert_raises(TypeError) { s.flip_bit(:foo) }
   end
 
-  def test_set_bit_bignum_raises_index_error
-    # Any positive Bignum maps to LONG_MAX via integer_to_bit_idx -> always out of range.
-    # RangeError is never raised regardless of sizeof(long) (LP64 vs LLP64/Windows).
-    assert_raises(IndexError) { (+"\xFF").set_bit(2**62) }
-    assert_raises(IndexError) { (+"\xFF").set_bit(2**63) }
-    assert_raises(IndexError) { (+"\xFF").set_bit(2**100) }
+  def test_set_bit_bignum_raises_argument_error
+    # Bignums cannot be represented as a C long (system range exceeded) -> ArgumentError.
+    assert_raises(ArgumentError) { (+"\xFF").set_bit(2**62) }
+    assert_raises(ArgumentError) { (+"\xFF").set_bit(2**63) }
+    assert_raises(ArgumentError) { (+"\xFF").set_bit(2**100) }
   end
 
-  def test_clear_bit_bignum_raises_index_error
-    assert_raises(IndexError) { (+"\xFF").clear_bit(2**62) }
-    assert_raises(IndexError) { (+"\xFF").clear_bit(2**63) }
-    assert_raises(IndexError) { (+"\xFF").clear_bit(2**100) }
+  def test_clear_bit_bignum_raises_argument_error
+    assert_raises(ArgumentError) { (+"\xFF").clear_bit(2**62) }
+    assert_raises(ArgumentError) { (+"\xFF").clear_bit(2**63) }
+    assert_raises(ArgumentError) { (+"\xFF").clear_bit(2**100) }
   end
 
-  def test_flip_bit_bignum_raises_index_error
-    assert_raises(IndexError) { (+"\xFF").flip_bit(2**100) }
+  def test_flip_bit_bignum_raises_argument_error
+    assert_raises(ArgumentError) { (+"\xFF").flip_bit(2**100) }
   end
 
   def test_order

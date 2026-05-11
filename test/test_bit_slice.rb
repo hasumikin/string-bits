@@ -85,13 +85,13 @@ class TestBitSlice < Minitest::Test
     assert_nil "\xFF".bit_slice(0, :foo)
   end
 
-  def test_bignum_offset_returns_nil
-    assert_nil "\xFF".bit_slice(2**62, 4)
-    assert_nil "\xFF".bit_slice(2**63, 4)
+  def test_bignum_offset_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_slice(2**62, 4) }
+    assert_raises(ArgumentError) { "\xFF".bit_slice(2**63, 4) }
   end
 
-  def test_bignum_length_returns_nil
-    assert_nil "\xFF".bit_slice(0, 2**63)
+  def test_bignum_length_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_slice(0, 2**63) }
   end
 
   def test_order

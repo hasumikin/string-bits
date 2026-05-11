@@ -51,8 +51,13 @@ class TestBitCountRun < Minitest::Test
     assert_equal 0, "\xFF".bit_run_count(-1, 1)
   end
 
-  def test_bignum_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(2**62, 1)
+  def test_bignum_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(2**62, 1) }
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(2**100, 1) }
+  end
+
+  def test_negative_bignum_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_run_count(-(2**100), 1) }
   end
 
   def test_boolean_bit_values

@@ -141,17 +141,13 @@ test_bit(const char *ptr, long bit_index)
     return rb_str_get_bit(ptr, bit_index, 0);
 }
 
-/* Convert a Ruby Integer to a long bit index without calling NUM2LONG on Bignums.
+/* Convert a Ruby Integer to a long bit index.
  *
- * NUM2LONG raises a platform-dependent RangeError: on Windows (LLP64) sizeof(long)==4
- * so any Bignum > INT32_MAX raises, while on Linux/macOS (LP64) sizeof(long)==8 so
- * Bignums up to INT64_MAX succeed. This inconsistency breaks cross-platform tests.
- *
- * Instead, map Bignums to sentinel longs that let the caller's existing range/sign
- * checks handle them uniformly on every platform:
- *   Fixnum          -> FIX2LONG(n)   (normal fast path)
- *   negative Bignum -> -1L           (non-negative guard will fire)
- *   positive Bignum -> LONG_MAX      (always out of range for any real string)
+ * Raises ArgumentError for Bignums on all platforms: a Bignum cannot be a
+ * valid bit index for any real string, and raising explicitly is clearer than
+ * silently mapping to a sentinel value that later triggers a different error.
+ * This also avoids the platform-dependent RangeError from NUM2LONG (LP64 vs
+ * LLP64/Windows with different sizeof(long)).
  *
  * RBIGNUM_NEGATIVE_P is available via ruby.h -> ruby/internal/core/rbignum.h. */
 static long
@@ -159,8 +155,8 @@ integer_to_bit_idx(VALUE n)
 {
     if (FIXNUM_P(n)) return FIX2LONG(n);
     RUBY_ASSERT(RB_TYPE_P(n, T_BIGNUM));
-    if (RBIGNUM_NEGATIVE_P(n)) return -1L;
-    return LONG_MAX;
+    rb_raise(rb_eArgError, "bit index out of representable range");
+    UNREACHABLE_RETURN(0);
 }
 
 static long
@@ -469,13 +465,9 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     if (!rb_integer_type_p(bit_offset) || !rb_integer_type_p(bit_length)) {
         return Qnil;
     }
-    /* Bignum values exceed any practical string length, treat as out-of-range */
-    if (!RB_FIXNUM_P(bit_offset) || !RB_FIXNUM_P(bit_length)) {
-        return Qnil;
-    }
 
-    long offset = FIX2LONG(bit_offset);
-    long length = FIX2LONG(bit_length);
+    long offset = integer_to_bit_idx(bit_offset);
+    long length = integer_to_bit_idx(bit_length);
 
     if (offset < 0 || length < 0) return Qnil;
 
@@ -1199,8 +1191,8 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1)) {
             rb_raise(rb_eTypeError, "bit index and length must be integers");
         }
-        dst_bit_off = NUM2LONG(v0);
-        dst_bit_len = NUM2LONG(v1);
+        dst_bit_off = integer_to_bit_idx(v0);
+        dst_bit_len = integer_to_bit_idx(v1);
         if (dst_bit_off < 0) dst_bit_off += dst_total;
 
         if (rb_integer_type_p(v2)) {
@@ -1237,14 +1229,14 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
             !rb_integer_type_p(v3) || !rb_integer_type_p(v4)) {
             rb_raise(rb_eTypeError, "bit indices and lengths must be integers");
         }
-        dst_bit_off = NUM2LONG(v0);
-        dst_bit_len = NUM2LONG(v1);
+        dst_bit_off = integer_to_bit_idx(v0);
+        dst_bit_len = integer_to_bit_idx(v1);
         if (dst_bit_off < 0) dst_bit_off += dst_total;
         str = v2;
         Check_Type(str, T_STRING);
         long src_total = RSTRING_LEN(str) * 8;
-        src_bit_off = NUM2LONG(v3);
-        src_bit_len = NUM2LONG(v4);
+        src_bit_off = integer_to_bit_idx(v3);
+        src_bit_len = integer_to_bit_idx(v4);
         if (src_bit_off < 0) src_bit_off += src_total;
     }
     else {

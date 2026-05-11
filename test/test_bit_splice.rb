@@ -358,4 +358,11 @@ class TestBitSplice < Minitest::Test
     s.bit_splice(0, 8, 0xAB, order: :msb)
     assert_equal "\x00\xAB", s
   end
+
+  def test_bignum_raises_argument_error
+    s = +"\xFF\xFF"
+    assert_raises(ArgumentError) { s.bit_splice(2**62, 4, "\x00") }
+    assert_raises(ArgumentError) { s.bit_splice(0, 2**62, "\x00") }
+    assert_raises(ArgumentError) { s.bit_splice(2**100, 4, "\x00") }
+  end
 end
