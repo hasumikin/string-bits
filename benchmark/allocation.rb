@@ -170,25 +170,25 @@ measure("gem:       mask! (in-place, needs dup)") {
   bm_values.dup.mask!(bm_bitmap, order: :lsb)
 }
 
-# --- each_bit_fields vs .each_slice chain ---
-section "each_bit_fields grouping -- 30KB, 12-bit fields, 10_000 pairs (2 fields)"
+# --- each_bit_field vs .each_slice chain ---
+section "each_bit_field grouping -- 30KB, 12-bit fields, 10_000 pairs (2 fields)"
 ebs_data = Random.bytes(30_000)
-measure("gem:       each_bit_fields(12, 12) { |a,b| }") {
-  ebs_data.each_bit_fields(12, 12) { |_a, _b| }  # yields Integers, zero allocs
+measure("gem:       each_bit_field(12, 12) { |a,b| }") {
+  ebs_data.each_bit_field(12, 12) { |_a, _b| }  # yields Integers, zero allocs
 }
-measure("Ruby:      each_bit_fields(12).each_slice(2) { |arr| }") {
-  ebs_data.each_bit_fields(12).each_slice(2) { |_pair| }  # one Array alloc per group
+measure("Ruby:      each_bit_field(12).each_slice(2) { |arr| }") {
+  ebs_data.each_bit_field(12).each_slice(2) { |_pair| }  # one Array alloc per group
 }
-measure("Ruby:      each_bit_fields(12).each_slice(2).to_a  (materialise)") {
-  ebs_data.each_bit_fields(12).each_slice(2).to_a
+measure("Ruby:      each_bit_field(12).each_slice(2).to_a  (materialise)") {
+  ebs_data.each_bit_field(12).each_slice(2).to_a
 }
 
-section "each_bit_fields grouping -- 30KB, 12-bit fields, 6_666 RGB triplets (3 fields)"
-measure("gem:       each_bit_fields(12, 12, 12) { |r,g,b| }") {
-  ebs_data.each_bit_fields(12, 12, 12) { |_r, _g, _b| }  # yields Integers, zero allocs
+section "each_bit_field grouping -- 30KB, 12-bit fields, 6_666 RGB triplets (3 fields)"
+measure("gem:       each_bit_field(12, 12, 12) { |r,g,b| }") {
+  ebs_data.each_bit_field(12, 12, 12) { |_r, _g, _b| }  # yields Integers, zero allocs
 }
-measure("Ruby:      each_bit_fields(12).each_slice(3) { |arr| }") {
-  ebs_data.each_bit_fields(12).each_slice(3) { |_arr| }
+measure("Ruby:      each_bit_field(12).each_slice(3) { |arr| }") {
+  ebs_data.each_bit_field(12).each_slice(3) { |_arr| }
 }
 
 puts

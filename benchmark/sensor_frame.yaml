@@ -34,11 +34,11 @@ benchmark:
     end
     [total_temp, total_hum, total_co2]
 
-  # string_bits: each_bit_fields handles both alignment cases uniformly,
+  # string_bits: each_bit_field handles both alignment cases uniformly,
   # yielding integers directly -- no manual bit extraction needed.
   string_bits: |
     total_temp = 0; total_hum = 0; total_co2 = 0
-    DATA.each_bit_fields(12, 10, 14) do |temp, hum, co2|
+    DATA.each_bit_field(12, 10, 14) do |temp, hum, co2|
       total_temp += temp
       total_hum  += hum
       total_co2  += co2

@@ -771,7 +771,7 @@ rb_str_bit_xor_bang(VALUE self, VALUE other)
 
 /* packed bit-field iteration ---------------------------------------------- */
 /*
- * NOTE: each_bit_fields and bit_fields are implemented here and fully tested,
+ * NOTE: each_bit_field and bit_fields are implemented here and fully tested,
  * but are NOT part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
  * They are deferred because yielding Integer field values is a qualitatively
  * different contract from the rest of the API, and that difference is expected
@@ -803,8 +803,8 @@ extract_uint64(const unsigned char *src, long src_len, long bit_offset, long bit
     return val;
 }
 
-/* String#each_bit_fields(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self
- * String#each_bit_fields(*bitlens, with: nil, order: :lsb) -> Enumerator
+/* String#each_bit_field(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self
+ * String#each_bit_field(*bitlens, with: nil, order: :lsb) -> Enumerator
  *
  * Iterates over the string as a sequence of packed bit-field records. Each
  * positional argument specifies the width (in bits) of one field in the record.
@@ -826,7 +826,7 @@ extract_uint64(const unsigned char *src, long src_len, long bit_offset, long bit
  *   3. Replace ALLOCA_N with stack arrays for small field counts and heap otherwise.
  */
 static VALUE
-rb_str_each_bit_fields(int argc, VALUE *argv, VALUE self)
+rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
@@ -913,16 +913,16 @@ rb_str_each_bit_fields(int argc, VALUE *argv, VALUE self)
 /* String#bit_fields(*bitlens, order: :lsb) -> Array
  * String#bit_fields(*bitlens, order: :lsb) { |*fields| } -> self
  *
- * Non-iterator complement of each_bit_fields.  Without a block, returns an
+ * Non-iterator complement of each_bit_field.  Without a block, returns an
  * Array of all extracted records.  With a single bitlen the array is flat
- * (matching each_bit_fields(n).to_a); with multiple bitlens each record is
- * itself an Array (matching each_bit_fields(a, b, ...).to_a).
+ * (matching each_bit_field(n).to_a); with multiple bitlens each record is
+ * itself an Array (matching each_bit_field(a, b, ...).to_a).
  *
- * With a block, behaves identically to each_bit_fields without with: ---
+ * With a block, behaves identically to each_bit_field without with: ---
  * yielding one Integer per field and returning self.
  *
  * Porting to Ruby Core:
- *   1. Move alongside each_bit_fields in string.c.
+ *   1. Move alongside each_bit_field in string.c.
  *   2. Share extract_uint64 and the bitlen validation logic.
  *   3. Register with rb_define_method in Init_String().
  */
@@ -1634,7 +1634,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
     rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
-    rb_define_method(rb_cString, "each_bit_fields",   rb_str_each_bit_fields,  -1);
+    rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);
     rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);

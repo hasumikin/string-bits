@@ -25,9 +25,9 @@ class TestBitFields < Minitest::Test
     assert_equal [0x0B, 0x0A], "\xAB".bit_fields(4)
   end
 
-  def test_single_field_matches_each_bit_fields_to_a
+  def test_single_field_matches_each_bit_field_to_a
     data = "\xAA\xCC\xFF\x00"
-    assert_equal data.each_bit_fields(6).to_a, data.bit_fields(6)
+    assert_equal data.each_bit_field(6).to_a, data.bit_fields(6)
   end
 
   def test_single_field_64bit
@@ -54,9 +54,9 @@ class TestBitFields < Minitest::Test
     assert_equal [[21, 42, 10]], pixel.bit_fields(5, 6, 5)
   end
 
-  def test_multiple_fields_matches_each_bit_fields_to_a
+  def test_multiple_fields_matches_each_bit_field_to_a
     data = "\xAA\xCC\xFF\x00"
-    assert_equal data.each_bit_fields(5, 6, 5).to_a, data.bit_fields(5, 6, 5)
+    assert_equal data.each_bit_field(5, 6, 5).to_a, data.bit_fields(5, 6, 5)
   end
 
   # --- Trailing bits dropped ---
@@ -89,10 +89,10 @@ class TestBitFields < Minitest::Test
     assert_equal data.bit_fields(8, 8).reverse, data.bit_fields(8, 8, order: :msb)
   end
 
-  def test_msb_matches_each_bit_fields_to_a
+  def test_msb_matches_each_bit_field_to_a
     data = "\xAA\xCC\xFF\x00"
-    assert_equal data.each_bit_fields(8, order: :msb).to_a, data.bit_fields(8, order: :msb)
-    assert_equal data.each_bit_fields(8, 8, order: :msb).to_a, data.bit_fields(8, 8, order: :msb)
+    assert_equal data.each_bit_field(8, order: :msb).to_a, data.bit_fields(8, order: :msb)
+    assert_equal data.each_bit_field(8, 8, order: :msb).to_a, data.bit_fields(8, 8, order: :msb)
   end
 
   # --- Block form ---

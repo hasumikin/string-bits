@@ -329,10 +329,10 @@ class TestBitSplice < Minitest::Test
     assert_equal 10, (pixel >> 11) & 0x1F
   end
 
-  def test_integer_source_roundtrip_with_each_bit_fields
-    # each_bit_fields yields integers; bit_splice writes them back
+  def test_integer_source_roundtrip_with_each_bit_field
+    # each_bit_field yields integers; bit_splice writes them back
     pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
-    pixel.each_bit_fields(5, 6, 5, with: :offset) do |b, _g, r, off|
+    pixel.each_bit_field(5, 6, 5, with: :offset) do |b, _g, r, off|
       pixel.bit_splice(off,      5, r)
       pixel.bit_splice(off + 11, 5, b)
     end

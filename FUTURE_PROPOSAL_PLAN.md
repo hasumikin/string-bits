@@ -1,6 +1,6 @@
 # Future Proposal: Packed Bit-Field Iteration
 
-This file documents `each_bit_fields` and `bit_fields`, which are implemented and tested
+This file documents `each_bit_field` and `bit_fields`, which are implemented and tested
 but intentionally excluded from the main proposal in README.md.
 
 ## Reason for deferral
@@ -13,8 +13,8 @@ is kept clean to reduce that risk.
 
 ---
 
-## `each_bit_fields(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self`
-## `each_bit_fields(*bitlens, with: nil, order: :lsb) -> Enumerator`
+## `each_bit_field(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self`
+## `each_bit_field(*bitlens, with: nil, order: :lsb) -> Enumerator`
 
 Iterates over the string as a sequence of packed bit-field records. Each positional argument
 specifies the width (in bits) of one field in the record. On each iteration, one value per
@@ -44,10 +44,10 @@ with: :index           -- appends the 0-based yield-order index to the block arg
 ```ruby
 data = "\xAA\xCC"   # 16 bits
 
-data.each_bit_fields(8).to_a
+data.each_bit_field(8).to_a
 #=> [0xAA, 0xCC]           # two single-field records
 
-data.each_bit_fields(8, 8).to_a
+data.each_bit_field(8, 8).to_a
 #=> [[0xAA, 0xCC]]         # one record with two fields
 ```
 
@@ -60,7 +60,7 @@ an output buffer.
 ```ruby
 # eg1: Swap R and B channels in an RGB565 buffer
 # RGB565 LSB-first layout: bits 0-4 = blue (5), bits 5-10 = green (6), bits 11-15 = red (5)
-rgb565data.each_bit_fields(5, 6, 5, with: :offset, order: :lsb) do |b, _g, r, offset|
+rgb565data.each_bit_field(5, 6, 5, with: :offset, order: :lsb) do |b, _g, r, offset|
   # b, r are Integers; offset is the bit position of the start of this pixel
   rgb565data.bit_splice(offset,      5, r)  # write red into the blue field
   rgb565data.bit_splice(offset + 11, 5, b)  # write blue into the red field
@@ -68,7 +68,7 @@ end
 
 # eg2: Convert RGB565 to 4-bit grayscale
 gray4data = "\x00" * (rgb565data.bytesize / 4)
-rgb565data.each_bit_fields(5, 6, 5, with: :index, order: :lsb) do |b, g, r, index|
+rgb565data.each_bit_field(5, 6, 5, with: :index, order: :lsb) do |b, g, r, index|
   gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
   gray4data.bit_splice(index * 4, 4, gray8 >> 4)
 end
@@ -81,7 +81,7 @@ maintaining external state between calls:
 ```ruby
 bitlen = 12
 
-data.each_bit_fields(bitlen, bitlen, order: :lsb) do |plane0, plane1|
+data.each_bit_field(bitlen, bitlen, order: :lsb) do |plane0, plane1|
   line = ""
   i = 0
   while i < bitlen
@@ -105,11 +105,11 @@ with `bit_splice` require no intermediate conversion or packing step.
 ## `bit_fields(*bitlens, order: :lsb) -> Array`
 ## `bit_fields(*bitlens, order: :lsb) { |*fields| } -> self`
 
-Non-iterator complement of `each_bit_fields`. Without a block, collects all records into an
-`Array` and returns it. With a block, yields the same values as `each_bit_fields` (without
+Non-iterator complement of `each_bit_field`. Without a block, collects all records into an
+`Array` and returns it. With a block, yields the same values as `each_bit_field` (without
 `with:`) and returns `self`.
 
-The returned array mirrors `each_bit_fields(*bitlens).to_a`: when exactly one bitlen is given
+The returned array mirrors `each_bit_field(*bitlens).to_a`: when exactly one bitlen is given
 the array is flat (`Array[Integer]`); when multiple bitlens are given each element is itself
 an `Array` (`Array[Array[Integer]]`).
 
@@ -130,7 +130,7 @@ data.bit_fields(8, order: :msb)
 #=> [0xCC, 0xAA]          # records in reverse order
 ```
 
-Unlike `each_bit_fields`, `bit_fields` has no `with:` keyword because the caller already
+Unlike `each_bit_field`, `bit_fields` has no `with:` keyword because the caller already
 holds the returned array and can compute offsets or indices from it directly.
 
 ---
@@ -168,16 +168,16 @@ N_FRAMES.times do |i|
 end
 ```
 
-`each_bit_fields` handles both alignment cases uniformly --- the bit offset arithmetic is
+`each_bit_field` handles both alignment cases uniformly --- the bit offset arithmetic is
 done once in C, and the block always receives three typed integers:
 
 ```ruby
-# each_bit_fields: alignment is handled transparently.
-DATA.each_bit_fields(12, 10, 14) do |temp, hum, co2|
+# each_bit_field: alignment is handled transparently.
+DATA.each_bit_field(12, 10, 14) do |temp, hum, co2|
   process(temp, hum, co2)
 end
 ```
 
-The two versions produce identical results. The `each_bit_fields` version eliminates the
+The two versions produce identical results. The `each_bit_field` version eliminates the
 alignment branch entirely, and the yielded integers can be used directly in arithmetic
 without any further unpacking.
