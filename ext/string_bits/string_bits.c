@@ -319,7 +319,7 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
 /* iterate set-bit positions ----------------------------------------------- */
 
 static VALUE
-rb_str_each_set_bit_position(int argc, VALUE *argv, VALUE self)
+rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
@@ -377,7 +377,7 @@ rb_str_each_set_bit_position(int argc, VALUE *argv, VALUE self)
 }
 
 static VALUE
-rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
+rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
 {
     int msb_first = parse_order(argc, argv);
     long len = RSTRING_LEN(self);
@@ -1578,8 +1578,8 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_count",         rb_str_bit_count,         0);
     rb_define_method(rb_cString, "each_bit",          rb_str_each_bit,         -1);
     rb_define_method(rb_cString, "bits",              rb_str_bits,             -1);
-    rb_define_method(rb_cString, "each_set_bit_position", rb_str_each_set_bit_position, -1);
-    rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
+    rb_define_method(rb_cString, "each_set_bit_offset", rb_str_each_set_bit_offset, -1);
+    rb_define_method(rb_cString, "set_bit_offsets",   rb_str_set_bit_offsets,  -1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);

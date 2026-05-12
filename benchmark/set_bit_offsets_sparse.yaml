@@ -15,4 +15,4 @@ benchmark:
       8.times { |bit| positions << bi * 8 + bit if (byte >> bit) & 1 == 1 }
     end
     positions
-  string_bits: "DATA.set_bit_positions(order: :lsb)"
+  string_bits: "DATA.set_bit_offsets(order: :lsb)"

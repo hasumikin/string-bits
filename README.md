@@ -13,7 +13,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | read | `bit_at` | yes | yes |
 | read | `bit_count` | yes | no |
 | iterate bits | `each_bit`, `bits` | yes | yes |
-| iterate set-bit positions | `each_set_bit_position`, `set_bit_positions` | yes | yes |
+| iterate set-bit positions | `each_set_bit_offset`, `set_bit_offsets` | yes | yes |
 | extract | `bit_slice` | no | yes |
 | multi-bit mutation | `bit_splice` | yes | yes |
 | run-length iteration | `each_bit_run`, `bit_runs`, `bit_run_count` | yes | yes |
@@ -130,8 +130,8 @@ Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ---
 
-#### `each_set_bit_position(order: :lsb) { |n| ... } -> self`
-#### `each_set_bit_position(order: :lsb) -> Enumerator`
+#### `each_set_bit_offset(order: :lsb) { |n| ... } -> self`
+#### `each_set_bit_offset(order: :lsb) -> Enumerator`
 
 Yields the flat position of each **set bit** (bit value == 1). Without a block, returns an `Enumerator`. With a block, returns `self`. The C implementation can use `__builtin_ctz` (count trailing zeros) to jump directly to the next set bit within each byte without scanning every bit.
 
@@ -147,28 +147,28 @@ order: :lsb yields:  1,  3,  5,  7, 10, 11, 14, 15   (ascending)
 order: :msb yields: 15, 14, 11, 10,  7,  5,  3,  1   (descending)
 ```
 
-Positions from `each_set_bit_position` can be passed directly to `bit_at`:
+Positions from `each_set_bit_offset` can be passed directly to `bit_at`:
 
 ```ruby
-data.each_set_bit_position do |n|
+data.each_set_bit_offset do |n|
   data.bit_at(n)  #=> always true
 end
 ```
 
 ---
 
-#### `set_bit_positions(order: :lsb) -> Array`
-#### `set_bit_positions(order: :lsb) { |n| ... } -> self`
+#### `set_bit_offsets(order: :lsb) -> Array`
+#### `set_bit_offsets(order: :lsb) { |n| ... } -> self`
 
-Without a block, returns an `Array` of set-bit positions --- equivalent to `each_set_bit_position(order: order).to_a`. With a block, forwards each position to the block and returns `self` --- equivalent to `each_set_bit_position(order: order) { |n| ... }`.
+Without a block, returns an `Array` of set-bit positions --- equivalent to `each_set_bit_offset(order: order).to_a`. With a block, forwards each position to the block and returns `self` --- equivalent to `each_set_bit_offset(order: order) { |n| ... }`.
 
 Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ```ruby
-"\xAA".set_bit_positions           #=> [1, 3, 5, 7]
-"\xAA".set_bit_positions(order: :msb)   #=> [7, 5, 3, 1]
+"\xAA".set_bit_offsets           #=> [1, 3, 5, 7]
+"\xAA".set_bit_offsets(order: :msb)   #=> [7, 5, 3, 1]
 
-"\xAA\xCC".set_bit_positions
+"\xAA\xCC".set_bit_offsets
 #=> [1, 3, 5, 7, 10, 11, 14, 15]
 ```
 
@@ -196,7 +196,7 @@ The result String uses the same flat numbering scheme as the source, so `bit_at`
 ```ruby
 result = data.bit_slice(4, 8)
 result.bit_at(0)                    #=> same as data.bit_at(4)
-result.each_set_bit_position(order: :lsb)    # yields set-bit positions within the extracted range
+result.each_set_bit_offset(order: :lsb)    # yields set-bit positions within the extracted range
 ```
 
 Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC serialization:
@@ -609,13 +609,13 @@ The `order:` keyword controls **interpretation and traversal direction**. It def
 | `:lsb` (default) | low -> high | 0, 1, 2, ... , total-1 |
 | `:msb`   | high -> low | total-1, ..., 2, 1, 0 |
 
-For iterative methods (`each_bit`, `each_set_bit_position`), it controls the yield order. For index-based methods (`bit_at`, `bit_slice`, `bit_splice`, `set_bit`, etc.), it defines the mapping of logical index `n` to physical bit position.
+For iterative methods (`each_bit`, `each_set_bit_offset`), it controls the yield order. For index-based methods (`bit_at`, `bit_slice`, `bit_splice`, `set_bit`, etc.), it defines the mapping of logical index `n` to physical bit position.
 
-The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). This ensures `values.mask(bitmap)` and `bitmap.each_set_bit_position { |i| values[i] }` work correctly without extra arguments. Additionally, `:lsb` yields positions in ascending order, making `set_bit_positions` results immediately usable as array subscripts.
+The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). This ensures `values.mask(bitmap)` and `bitmap.each_set_bit_offset { |i| values[i] }` work correctly without extra arguments. Additionally, `:lsb` yields positions in ascending order, making `set_bit_offsets` results immediately usable as array subscripts.
 
 The trade-off is that visual binary display (where the MSB is leftmost) requires `order: :msb` explicitly. This is preferred as columnar analytics and Arrow represent the primary production workload.
 
-The symbol values `:lsb` and `:msb` leave room for future extensions (e.g. `:native`, `:network`) without breaking changes. As a consequence, `each_bit(order: :msb).to_a` is always the reverse of `each_bit.to_a`, and the same holds for `each_set_bit_position`.
+The symbol values `:lsb` and `:msb` leave room for future extensions (e.g. `:native`, `:network`) without breaking changes. As a consequence, `each_bit(order: :msb).to_a` is always the reverse of `each_bit.to_a`, and the same holds for `each_set_bit_offset`.
 
 ### Naming convention: symmetry with `bytes` / `each_byte`
 
@@ -632,23 +632,23 @@ s.each_bit { |b| ... }  #=> self (s)
 s.bits                   #=> Array of true/false (same as each_bit.to_a)
 s.bits { |b| ... }       #=> self (s), same as each_bit { |b| ... }
 
-# each_set_bit_position: Enumerator or self
-s.each_set_bit_position               #=> Enumerator
-s.each_set_bit_position { |n| ... }  #=> self (s)
+# each_set_bit_offset: Enumerator or self
+s.each_set_bit_offset               #=> Enumerator
+s.each_set_bit_offset { |n| ... }  #=> self (s)
 
-# set_bit_positions: Array or self
-s.set_bit_positions                   #=> Array of set-bit positions (same as each_set_bit_position.to_a)
-s.set_bit_positions { |n| ... }       #=> self (s), same as each_set_bit_position { |n| ... }
+# set_bit_offsets: Array or self
+s.set_bit_offsets                   #=> Array of set-bit positions (same as each_set_bit_offset.to_a)
+s.set_bit_offsets { |n| ... }       #=> self (s), same as each_set_bit_offset { |n| ... }
 ```
 
-The word "set" is ambiguous in English (verb: mutate; adjective: already-set bits). `each_set_bit_position` resolves this --- the `each_` prefix always signals iteration, never mutation. `set_bit_positions` names the return type explicitly, distinguishing it from `bits`.
+The word "set" is ambiguous in English (verb: mutate; adjective: already-set bits). `each_set_bit_offset` resolves this --- the `each_` prefix always signals iteration, never mutation. `set_bit_offsets` names the return type explicitly, distinguishing it from `bits`.
 
 | analogy | byte methods | bit methods |
 |---------|-------------|-------------|
 | iterate with block or Enumerator | `each_byte` | `each_bit` |
 | Array or block shorthand | `bytes` | `bits` |
-| iterate set-bit *positions* | --- | `each_set_bit_position` |
-| Array or block shorthand for set-bit positions | --- | `set_bit_positions` |
+| iterate set-bit *positions* | --- | `each_set_bit_offset` |
+| Array or block shorthand for set-bit positions | --- | `set_bit_offsets` |
 
 The mutation methods `set_bit(n)`, `clear_bit(n)`, and `flip_bit(n)` use unambiguous verb phrases and are not affected by this convention.
 
@@ -711,7 +711,7 @@ Arrow validity bitmap for 10 elements (byte[0] = 0b11111111, byte[1] = 0b0000001
   validity:  ok   ok   ok   ok   ok   ok   ok   ok   ok   ok
 ```
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_position(order: :lsb)` yields valid element indices in ascending order. `Array#bitwise(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values --- entirely in C with no per-element callback overhead.
+`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(order: :lsb)` yields valid element indices in ascending order. `Array#bitwise(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values --- entirely in C with no per-element callback overhead.
 
 #### Arrow IPC serialization
 
@@ -743,7 +743,7 @@ One might expect each method to accept a `byte_offset:` keyword so that a bitmap
 | operation | alternative |
 |-----------|-------------|
 | `bit_at(n)` on a sub-range | encode the offset in `n`: `bit_at(byte_offset * 8 + n)` |
-| `bit_count`, `each_bit`, `each_set_bit_position` | extract once with `byteslice(offset, length)`, then call the method |
+| `bit_count`, `each_bit`, `each_set_bit_offset` | extract once with `byteslice(offset, length)`, then call the method |
 | `bit_and!`, `bit_or!`, `bit_xor!` on a sub-range | use `IO::Buffer` (see below) |
 
 For single-bit access the byte offset is already expressible through `n`. For bulk read-only operations, `byteslice` produces a one-time copy whose cost is negligible compared with the operation itself (a bitmap for one million rows is only 123 KB).
@@ -829,7 +829,7 @@ for (int i = bs.nextSetBit(0); i >= 0; i = bs.nextSetBit(i + 1)) {
 }
 ```
 
-**Implication:** Java requires a separate container type (`BitSet`) and exposes relatively low-level iteration primitives. In contrast, Ruby integrates bit operations into `String` and provides direct iteration via `each_bit` and `each_set_bit_position`, eliminating boilerplate.
+**Implication:** Java requires a separate container type (`BitSet`) and exposes relatively low-level iteration primitives. In contrast, Ruby integrates bit operations into `String` and provides direct iteration via `each_bit` and `each_set_bit_offset`, eliminating boilerplate.
 
 ### Rust
 
@@ -852,7 +852,7 @@ C++ offers `std::bitset` and `std::vector<bool>`:
 
 These APIs are efficient but not integrated with standard iteration patterns, and naming tends toward technical terminology (`test`, `reset`).
 
-**Implication:** C++ emphasizes performance and explicitness, but lacks a high-level, idiomatic iteration model. Ruby's `each_bit` and `each_set_bit_position` provide a more natural, Enumerable-based interface.
+**Implication:** C++ emphasizes performance and explicitness, but lacks a high-level, idiomatic iteration model. Ruby's `each_bit` and `each_set_bit_offset` provide a more natural, Enumerable-based interface.
 
 ### Go
 
@@ -879,7 +879,7 @@ Key differences from the above:
 
 * No new container type (unlike `BitSet`, `bitvec`)
 * Zero-copy operation on existing byte buffers
-* Full integration with Ruby's Enumerable style (`each_bit`, `each_set_bit_position`)
+* Full integration with Ruby's Enumerable style (`each_bit`, `each_set_bit_offset`)
 * Natural method naming consistent with `String#bytes` / `each_byte`
 
 In effect, this design lifts bit manipulation from low-level primitives into a high-level, idiomatic Ruby interface, while preserving the performance characteristics required for real-world workloads such as Apache Arrow and bitmap rendering.
