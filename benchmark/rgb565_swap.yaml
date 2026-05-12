@@ -1,0 +1,39 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  # 100_000 RGB565 pixels = 200_000 bytes.
+  # Layout (LSB-first, 16 bits per pixel):
+  #   bits  0-4  : blue  (5 bits)
+  #   bits  5-10 : green (6 bits)
+  #   bits 11-15 : red   (5 bits)
+  N_PIXELS = 100_000
+  DATA = Random.bytes(N_PIXELS * 2)
+
+benchmark:
+  # Pure Ruby: read each 16-bit word, mask/shift the three channels, write back.
+  baseline: |
+    result = DATA.dup
+    N_PIXELS.times do |i|
+      lo    = result.getbyte(i * 2)
+      hi    = result.getbyte(i * 2 + 1)
+      pixel = lo | (hi << 8)
+      b     = pixel & 0x1F
+      g     = (pixel >> 5) & 0x3F
+      r     = (pixel >> 11) & 0x1F
+      new_pixel = r | (g << 5) | (b << 11)
+      result.setbyte(i * 2,     new_pixel & 0xFF)
+      result.setbyte(i * 2 + 1, (new_pixel >> 8) & 0xFF)
+    end
+    result
+
+  # string_bits: each_bit_field unpacks the three channels as integers; bit_splice
+  # writes only the two changed fields back, leaving green untouched.
+  string_bits: |
+    result = DATA.dup
+    result.each_bit_field(5, 6, 5, order: :lsb).each_with_index do |(b, _g, r), iter|
+      offset = iter * 16
+      result.bit_splice(offset,      5, r)
+      result.bit_splice(offset + 11, 5, b)
+    end
+    result
