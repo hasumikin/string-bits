@@ -681,6 +681,14 @@ rb_str_bit_xor_bang(VALUE self, VALUE other)
 }
 
 /* packed bit-field iteration ---------------------------------------------- */
+/*
+ * NOTE: each_bit_fields and bit_fields are implemented here and fully tested,
+ * but are NOT part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
+ * They are deferred because yielding Integer field values is a qualitatively
+ * different contract from the rest of the API, and that difference is expected
+ * to extend core-ruby-dev discussion. The code is kept so the proposal can be
+ * extended later without re-implementation.
+ */
 
 /*
  * extract_uint64: extract up to 64 bits starting at bit_offset from src as an
@@ -811,6 +819,101 @@ rb_str_each_bit_fields(int argc, VALUE *argv, VALUE self)
     }
 
     return self;
+}
+
+/* String#bit_fields(*bitlens, order: :lsb) -> Array
+ * String#bit_fields(*bitlens, order: :lsb) { |*fields| } -> self
+ *
+ * Non-iterator complement of each_bit_fields.  Without a block, returns an
+ * Array of all extracted records.  With a single bitlen the array is flat
+ * (matching each_bit_fields(n).to_a); with multiple bitlens each record is
+ * itself an Array (matching each_bit_fields(a, b, ...).to_a).
+ *
+ * With a block, behaves identically to each_bit_fields without with: ---
+ * yielding one Integer per field and returning self.
+ *
+ * Porting to Ruby Core:
+ *   1. Move alongside each_bit_fields in string.c.
+ *   2. Share extract_uint64 and the bitlen validation logic.
+ *   3. Register with rb_define_method in Init_String().
+ */
+static VALUE
+rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
+{
+    VALUE rest, opts;
+    rb_scan_args(argc, argv, "*:", &rest, &opts);
+
+    long num_fields = RARRAY_LEN(rest);
+    if (num_fields == 0) {
+        rb_raise(rb_eArgError, "wrong number of arguments (given 0, expected 1+)");
+    }
+
+    long *bitlens = ALLOCA_N(long, num_fields);
+    long step = 0;
+    for (long f = 0; f < num_fields; f++) {
+        VALUE v = RARRAY_AREF(rest, f);
+        if (!rb_integer_type_p(v)) {
+            rb_raise(rb_eTypeError, "bitlen must be an integer");
+        }
+        long bl = NUM2LONG(v);
+        if (bl <= 0) {
+            rb_raise(rb_eArgError, "bitlen must be positive");
+        }
+        if (bl > 64) {
+            rb_raise(rb_eArgError, "bitlen must be <= 64 (got %ld)", bl);
+        }
+        bitlens[f] = bl;
+        step += bl;
+    }
+
+    int msb_first = parse_order_opt(opts);
+
+    long src_len = RSTRING_LEN(self);
+    long total_bits = src_len * 8;
+    long iterations = total_bits / step;
+
+    int have_block = rb_block_given_p();
+    VALUE result = have_block ? Qnil : rb_ary_new_capa(iterations);
+
+    VALUE *field_vals = ALLOCA_N(VALUE, num_fields);
+
+    if (!msb_first) {
+        for (long iter = 0; iter < iterations; iter++) {
+            long base_bit = iter * step;
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            long field_bit = base_bit;
+            for (long f = 0; f < num_fields; f++) {
+                field_vals[f] = ULL2NUM(extract_uint64(src, src_len, field_bit, bitlens[f]));
+                field_bit += bitlens[f];
+            }
+            if (have_block) {
+                rb_yield_values2((int)num_fields, field_vals);
+            } else if (num_fields == 1) {
+                rb_ary_push(result, field_vals[0]);
+            } else {
+                rb_ary_push(result, rb_ary_new_from_values(num_fields, field_vals));
+            }
+        }
+    } else {
+        for (long iter = iterations - 1; iter >= 0; iter--) {
+            long base_bit = iter * step;
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            long field_bit = base_bit;
+            for (long f = 0; f < num_fields; f++) {
+                field_vals[f] = ULL2NUM(extract_uint64(src, src_len, field_bit, bitlens[f]));
+                field_bit += bitlens[f];
+            }
+            if (have_block) {
+                rb_yield_values2((int)num_fields, field_vals);
+            } else if (num_fields == 1) {
+                rb_ary_push(result, field_vals[0]);
+            } else {
+                rb_ary_push(result, rb_ary_new_from_values(num_fields, field_vals));
+            }
+        }
+    }
+
+    return have_block ? self : result;
 }
 
 /* run-length iteration ---------------------------------------------------- */
@@ -1442,6 +1545,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_fields",   rb_str_each_bit_fields,  -1);
+    rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,          -1);

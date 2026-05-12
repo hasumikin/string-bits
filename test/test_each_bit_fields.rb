@@ -1,3 +1,6 @@
+# NOTE: each_bit_fields is NOT part of the current core proposal.
+# It is deferred pending discussion on yielding Integer field values.
+# See FUTURE_PROPOSAL_PLAN.md for the rationale.
 require_relative "test_helper"
 
 class TestEachBitFields < Minitest::Test
