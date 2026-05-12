@@ -11,6 +11,32 @@ Introducing a method that yields typed field values decoded from a packed binary
 expected to prolong discussion on the core-ruby-dev mailing list. The rest of the proposal
 is kept clean to reduce that risk.
 
+### Open design question: field assembly direction vs. traversal direction
+
+The `order:` keyword controls **record traversal direction** --- which record is visited
+first. It does not control how bits are assembled into an integer value within a single field.
+The current implementation always assembles field bits LSB-first: the lowest-numbered bit
+position contributes the least significant bit of the result.
+
+These are two orthogonal concerns:
+
+| concern | controlled by |
+|---------|--------------|
+| which record comes first | `order:` |
+| how bits within a field form an integer | always LSB-first (not configurable) |
+
+For LSB-first domains (Apache Arrow, ARM registers, BLE, filesystem bitmaps) this is
+correct and requires no extra argument. For MSB-first domains (RFC network headers,
+BitTorrent, PNG sub-byte images), a field's most significant bit occupies the lowest
+bit position in the underlying byte, so LSB-first assembly yields the bit-reversed value.
+`order: :msb` changes which end of the string iteration starts from, but does not reverse
+the bit assembly within each field --- it does not solve the MSB-first field problem.
+
+A fully general design would need a second parameter (e.g., `field_order: :lsb/:msb`) to
+control field bit assembly independently of record traversal direction. Whether this
+complexity is warranted depends on how prominent MSB-first packed-field workloads are in
+practice. The current implementation defers that decision.
+
 ---
 
 ## `each_bit_field(*bitlens, order: :lsb) { |*fields| } -> self`

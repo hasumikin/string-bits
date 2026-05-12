@@ -191,4 +191,46 @@ measure("Ruby:      each_bit_field(12).each_slice(3) { |arr| }") {
   ebs_data.each_bit_field(12).each_slice(3) { |_arr| }
 }
 
+# --- bit_splice ---
+#
+# Writes 10-bit values at non-byte-aligned positions (every 10 bits).
+# Each field crosses a byte boundary, so setbyte alone requires manual
+# mask/shift arithmetic.  The pack+bytesplice approach is simpler to
+# read but allocates one String per write.  bit_splice is both simple
+# and allocation-free.
+N_SPLICE  = 10_000
+splice_src  = Random.bytes((N_SPLICE * 10 + 7) / 8)
+splice_vals = Array.new(N_SPLICE) { rand(1024) }
+
+section "bit_splice: write #{N_SPLICE} x 10-bit values at non-byte-aligned positions"
+measure("Pure Ruby: getbyte/[lo,hi].pack(\"CC\")+bytesplice  x#{N_SPLICE}") {
+  buf = splice_src.dup
+  N_SPLICE.times do |i|
+    byte_i = (i * 10) >> 3
+    shift  = (i * 10) & 7
+    lo     = buf.getbyte(byte_i)
+    hi     = buf.getbyte(byte_i + 1) || 0
+    word   = (lo | (hi << 8)) & ~(0x3FF << shift) | ((splice_vals[i] & 0x3FF) << shift)
+    buf.bytesplice(byte_i, 2, [word & 0xFF, word >> 8].pack("CC"))  # String alloc per write
+  end
+}
+measure("Pure Ruby: getbyte pair + setbyte pair (manual mask/shift)  x#{N_SPLICE}") {
+  buf = splice_src.dup
+  N_SPLICE.times do |i|
+    byte_i = (i * 10) >> 3
+    shift  = (i * 10) & 7
+    lo     = buf.getbyte(byte_i)
+    hi     = buf.getbyte(byte_i + 1) || 0
+    word   = (lo | (hi << 8)) & ~(0x3FF << shift) | ((splice_vals[i] & 0x3FF) << shift)
+    buf.setbyte(byte_i,     word & 0xFF)
+    buf.setbyte(byte_i + 1, (word >> 8) & 0xFF)
+  end
+}
+measure("gem:       bit_splice(i*10, 10, val)  x#{N_SPLICE}") {
+  buf = splice_src.dup
+  N_SPLICE.times do |i|
+    buf.bit_splice(i * 10, 10, splice_vals[i])
+  end
+}
+
 puts
