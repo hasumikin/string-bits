@@ -16,7 +16,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | iterate set-bit positions | `each_set_bit_position`, `set_bit_positions` | yes | yes |
 | extract | `bit_slice` | no | yes |
 | multi-bit mutation | `bit_splice` | yes | yes |
-| run-length iteration | `each_bit_run`, `bit_run_count` | yes | yes |
+| run-length iteration | `each_bit_run`, `bit_runs`, `bit_run_count` | yes | yes |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | yes |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes | no |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no | no |
@@ -313,6 +313,21 @@ while pos < total
   runs << [bit, len]
   pos += len
 end
+```
+
+---
+
+#### `bit_runs(order: :lsb) -> Array`
+#### `bit_runs(order: :lsb) { |bit, len| } -> self`
+
+Non-iterator complement of `each_bit_run`. Without a block, collects all `(bit, run_length)` pairs into an `Array` and returns it --- equivalent to `each_bit_run(order: order).to_a`. With a block, yields each pair and returns `self`.
+
+```ruby
+"\xFF\x00".bit_runs
+#=> [[true, 8], [false, 8]]
+
+"\xF0".bit_runs
+#=> [[false, 4], [true, 4]]
 ```
 
 ---

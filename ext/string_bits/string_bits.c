@@ -1123,6 +1123,59 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
+/* String#bit_runs(order: :lsb) -> Array
+ * String#bit_runs(order: :lsb) { |bit, len| } -> self
+ *
+ * Non-iterator complement of each_bit_run. Without a block, collects all
+ * (bit, run_length) pairs into an Array and returns it. With a block,
+ * yields each pair and returns self.
+ *
+ * Follows the same pattern as String#bytes vs String#each_byte.
+ *
+ * Porting to Ruby Core:
+ *   1. Move to string.c alongside each_bit_run; register in Init_String().
+ */
+static VALUE
+rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
+{
+    int msb_first  = parse_order(argc, argv);
+    long src_len   = RSTRING_LEN(self);
+    int have_block = rb_block_given_p();
+
+    if (src_len == 0) return have_block ? self : rb_ary_new();
+
+    long total_bits = src_len * 8;
+    VALUE result    = have_block ? Qnil : rb_ary_new();
+
+    if (!msb_first) {
+        long pos = 0;
+        while (pos < total_bits) {
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            int bit  = (src[pos >> 3] >> (pos & 7)) & 1;
+            long run = count_run_lsb(src, src_len, pos, bit);
+            VALUE bval = bit ? Qtrue : Qfalse;
+            VALUE lval = LONG2FIX(run);
+            have_block ? rb_yield_values(2, bval, lval)
+                       : rb_ary_push(result, rb_assoc_new(bval, lval));
+            pos += run;
+        }
+    } else {
+        long pos = total_bits - 1;
+        while (pos >= 0) {
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            int bit  = (src[pos >> 3] >> (pos & 7)) & 1;
+            long run = count_run_msb(src, pos, bit);
+            VALUE bval = bit ? Qtrue : Qfalse;
+            VALUE lval = LONG2FIX(run);
+            have_block ? rb_yield_values(2, bval, lval)
+                       : rb_ary_push(result, rb_assoc_new(bval, lval));
+            pos -= run;
+        }
+    }
+
+    return have_block ? self : result;
+}
+
 /* multi-bit mutation ------------------------------------------------------ */
 
 /*
@@ -1533,6 +1586,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
+    rb_define_method(rb_cString, "bit_runs",          rb_str_bit_runs,         -1);
     rb_define_method(rb_cString, "set_bit",           rb_str_set_bit,          -1);
     rb_define_method(rb_cString, "clear_bit",         rb_str_clear_bit,        -1);
     rb_define_method(rb_cString, "flip_bit",          rb_str_flip_bit,         -1);
