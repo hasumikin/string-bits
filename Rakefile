@@ -3,7 +3,7 @@
 require "rake/extensiontask"
 require "rake/testtask"
 
-spec = Gem::Specification.load("string-bits.gemspec")
+spec = Gem::Specification.load("string_bits.gemspec")
 
 Rake::ExtensionTask.new("string_bits", spec) do |t|
   t.ext_dir = "ext/string_bits"

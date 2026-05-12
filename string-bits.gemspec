@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 Gem::Specification.new do |s|
-  s.name        = "string-bits"
+  s.name        = "string_bits"
   s.version     = "0.1.0"
   s.summary     = "Bit-level operations on Ruby String"
   s.description = "Extends String with methods for reading, iterating, and manipulating individual bits in packed binary data."

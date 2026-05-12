@@ -45,7 +45,7 @@ def section(title)
 end
 
 puts "Allocation benchmark"
-puts "Ruby #{RUBY_VERSION} | string-bits #{StringBits::VERSION rescue "dev"}"
+puts "Ruby #{RUBY_VERSION} | string_bits #{StringBits::VERSION rescue "dev"}"
 printf "  %-#{COL_LABEL}s  %#{COL_COUNT}s\n", "", "allocs"
 puts  "  " + "=" * (COL_LABEL + COL_COUNT + 4)
 

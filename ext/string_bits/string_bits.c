@@ -1182,7 +1182,7 @@ rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
  * bit_copy_core: copy `length` bits from src[src_bit_off] to dst[dst_bit_off].
  *
  * Both offsets are in the LSB-first flat bit numbering used throughout
- * string-bits.  The routine does not resize dst; the caller must ensure
+ * string_bits.  The routine does not resize dst; the caller must ensure
  * dst has enough bytes.
  *
  * Algorithm:
