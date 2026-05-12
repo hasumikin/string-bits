@@ -13,8 +13,8 @@ is kept clean to reduce that risk.
 
 ---
 
-## `each_bit_field(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self`
-## `each_bit_field(*bitlens, with: nil, order: :lsb) -> Enumerator`
+## `each_bit_field(*bitlens, order: :lsb) { |*fields| } -> self`
+## `each_bit_field(*bitlens, order: :lsb) -> Enumerator`
 
 Iterates over the string as a sequence of packed bit-field records. Each positional argument
 specifies the width (in bits) of one field in the record. On each iteration, one value per
@@ -37,8 +37,6 @@ silently dropped, matching the behavior of `Enumerable#each_slice`.
 ```
 order: :lsb (default)  -- records yielded left-to-right (ascending bit position)
 order: :msb            -- records yielded right-to-left (descending bit position)
-with: :offset          -- appends the bit offset of the current record to the block args
-with: :index           -- appends the 0-based yield-order index to the block args
 ```
 
 ```ruby
@@ -53,22 +51,22 @@ data.each_bit_field(8, 8).to_a
 
 **RGB565 pixel manipulation**
 
-`with: :offset` provides the bit offset of the current record so you can write back into the
-source with `bit_splice`. `with: :index` provides the 0-based iteration count for addressing
-an output buffer.
+Bit offsets and iteration indices are derived outside the block. `each_with_index` wraps the
+enumerator form; the bit offset of each record is `iter * step` where `step` is the sum of
+bitlens (16 for 5+6+5).
 
 ```ruby
 # eg1: Swap R and B channels in an RGB565 buffer
 # RGB565 LSB-first layout: bits 0-4 = blue (5), bits 5-10 = green (6), bits 11-15 = red (5)
-rgb565data.each_bit_field(5, 6, 5, with: :offset, order: :lsb) do |b, _g, r, offset|
-  # b, r are Integers; offset is the bit position of the start of this pixel
+rgb565data.each_bit_field(5, 6, 5, order: :lsb).each_with_index do |(b, _g, r), iter|
+  offset = iter * 16
   rgb565data.bit_splice(offset,      5, r)  # write red into the blue field
   rgb565data.bit_splice(offset + 11, 5, b)  # write blue into the red field
 end
 
 # eg2: Convert RGB565 to 4-bit grayscale
 gray4data = "\x00" * (rgb565data.bytesize / 4)
-rgb565data.each_bit_field(5, 6, 5, with: :index, order: :lsb) do |b, g, r, index|
+rgb565data.each_bit_field(5, 6, 5, order: :lsb).each_with_index do |(b, g, r), index|
   gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
   gray4data.bit_splice(index * 4, 4, gray8 >> 4)
 end
@@ -130,8 +128,8 @@ data.bit_fields(8, order: :msb)
 #=> [0xCC, 0xAA]          # records in reverse order
 ```
 
-Unlike `each_bit_field`, `bit_fields` has no `with:` keyword because the caller already
-holds the returned array and can compute offsets or indices from it directly.
+Unlike `each_bit_field`, `bit_fields` returns all records at once, so the caller can
+compute offsets or indices from the returned array directly.
 
 ---
 

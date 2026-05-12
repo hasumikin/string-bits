@@ -98,11 +98,11 @@ measure("gem:       bit_slice x1000") {
   1_000.times { |i| DATA_100K.bit_slice(i * 37, 64) }
 }
 
-# --- each_set_bit / set_bit_positions ---
+# --- each_set_bit_position / set_bit_positions ---
 section "set-bit iteration (1M bits, ~50% set)"
 validity = Random.bytes(125_000)
-measure("gem:       each_set_bit { block }  (yields Fixnum)") {
-  validity.each_set_bit(order: :lsb) { |_i| }
+measure("gem:       each_set_bit_position { block }  (yields Fixnum)") {
+  validity.each_set_bit_position(order: :lsb) { |_i| }
 }
 measure("gem:       set_bit_positions  (-> Array)") {
   validity.set_bit_positions(order: :lsb)

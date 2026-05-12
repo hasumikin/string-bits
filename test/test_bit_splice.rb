@@ -332,7 +332,8 @@ class TestBitSplice < Minitest::Test
   def test_integer_source_roundtrip_with_each_bit_field
     # each_bit_field yields integers; bit_splice writes them back
     pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
-    pixel.each_bit_field(5, 6, 5, with: :offset) do |b, _g, r, off|
+    pixel.each_bit_field(5, 6, 5).each_with_index do |(b, _g, r), iter|
+      off = iter * 16
       pixel.bit_splice(off,      5, r)
       pixel.bit_splice(off + 11, 5, b)
     end

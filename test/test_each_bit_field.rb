@@ -13,7 +13,6 @@ class TestEachBitField < Minitest::Test
   def test_returns_enumerator_with_options
     assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, 8)
     assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, order: :msb)
-    assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, with: :index)
   end
 
   def test_returns_self_with_block
@@ -144,54 +143,6 @@ class TestEachBitField < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".each_bit_field(4, 65) {} }
   end
 
-  # --- with: :offset ---
-
-  def test_with_offset_single_field
-    offsets = []
-    "\xAA\xBB\xCC\xDD".each_bit_field(8, with: :offset) { |_v, off| offsets << off }
-    assert_equal [0, 8, 16, 24], offsets
-  end
-
-  def test_with_offset_two_fields
-    offsets = []
-    "\xAA\xBB\xCC\xDD".each_bit_field(8, 8, with: :offset) { |_a, _b, off| offsets << off }
-    assert_equal [0, 16], offsets
-  end
-
-  def test_with_offset_mixed_width
-    offsets = []
-    "\xAA\xBB\xCC\xDD".each_bit_field(5, 6, 5, with: :offset) { |_b, _g, _r, off| offsets << off }
-    assert_equal [0, 16], offsets
-  end
-
-  def test_with_offset_allows_bit_splice
-    data = +"\xAA\xBB"
-    data.each_bit_field(8, with: :offset) do |val, off|
-      data.bit_splice(off, 8, val ^ 0xFF)
-    end
-    assert_equal "\x55\x44", data
-  end
-
-  # --- with: :index ---
-
-  def test_with_index_single_field
-    indices = []
-    "\xAA\xBB\xCC\xDD".each_bit_field(8, with: :index) { |_v, idx| indices << idx }
-    assert_equal [0, 1, 2, 3], indices
-  end
-
-  def test_with_index_two_fields
-    indices = []
-    "\xAA\xBB\xCC\xDD".each_bit_field(8, 8, with: :index) { |_a, _b, idx| indices << idx }
-    assert_equal [0, 1], indices
-  end
-
-  def test_with_index_msb
-    indices = []
-    "\xAA\xBB\xCC\xDD".each_bit_field(8, with: :index, order: :msb) { |_v, idx| indices << idx }
-    assert_equal [0, 1, 2, 3], indices
-  end
-
   # --- order: :msb ---
 
   def test_msb_reverses_iteration_order
@@ -208,12 +159,6 @@ class TestEachBitField < Minitest::Test
     data.each_bit_field(8, 8) { |a, b| lsb_groups << [a, b] }
     data.each_bit_field(8, 8, order: :msb) { |a, b| msb_groups << [a, b] }
     assert_equal lsb_groups.reverse, msb_groups
-  end
-
-  def test_msb_offset_descends
-    offsets = []
-    "\xAA\xBB\xCC\xDD".each_bit_field(8, with: :offset, order: :msb) { |_v, off| offsets << off }
-    assert_equal [24, 16, 8, 0], offsets
   end
 
   # --- Error handling ---
@@ -240,10 +185,6 @@ class TestEachBitField < Minitest::Test
 
   def test_argument_error_for_invalid_order
     assert_raises(ArgumentError) { "\xAA".each_bit_field(4, order: :foo) {} }
-  end
-
-  def test_argument_error_for_invalid_with
-    assert_raises(ArgumentError) { "\xAA".each_bit_field(4, with: :foo) {} }
   end
 
   # --- Enumerator behavior ---

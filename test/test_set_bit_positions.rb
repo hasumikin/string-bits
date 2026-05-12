@@ -22,7 +22,7 @@ class TestSetBitPositions < Minitest::Test
     collected_set  = []
     collected_each = []
     @data.set_bit_positions { |n| collected_set  << n }
-    @data.each_set_bit      { |n| collected_each << n }
+    @data.each_set_bit_position { |n| collected_each << n }
     assert_equal collected_each, collected_set
   end
 
@@ -32,8 +32,8 @@ class TestSetBitPositions < Minitest::Test
   end
 
   def test_set_bit_positions_equals_each_set_bit_to_a
-    assert_equal @data.each_set_bit.to_a,              @data.set_bit_positions
-    assert_equal @data.each_set_bit(order: :msb).to_a, @data.set_bit_positions(order: :msb)
+    assert_equal @data.each_set_bit_position.to_a,              @data.set_bit_positions
+    assert_equal @data.each_set_bit_position(order: :msb).to_a, @data.set_bit_positions(order: :msb)
   end
 
   def test_empty_string

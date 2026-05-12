@@ -44,7 +44,7 @@ sb_popcount64(uint64_t x)
 /* ctz / clz helpers for set-bit iteration ---------------------------------- */
 
 static ID id_bracket;
-static VALUE sym_order, sym_lsb, sym_msb, sym_with, sym_offset, sym_index, sym_invert;
+static VALUE sym_order, sym_lsb, sym_msb, sym_invert;
 
 static inline int
 sb_ctz8(unsigned int x)
@@ -319,7 +319,7 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
 /* iterate set-bit positions ----------------------------------------------- */
 
 static VALUE
-rb_str_each_set_bit(int argc, VALUE *argv, VALUE self)
+rb_str_each_set_bit_position(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
@@ -455,8 +455,6 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
  * sb_extract_bits: copy bit_length bits from src[src_bit_off] into dst[0..],
  * producing an LSB-first packed byte string with the tail byte masked.
  * dst must be zeroed and sized to (bit_length + 7) / 8 bytes.
- *
- * Shared by rb_str_bit_slice, rb_str_each_bit_segment, and rb_str_bit_segments.
  */
 static void
 sb_extract_bits(unsigned char *dst, long out_bytes,
@@ -532,147 +530,6 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
     sb_extract_bits(dst, out_bytes, src, src_len, offset, length);
     return result;
-}
-
-/*
- * sb_yield_or_push_segment: shared iteration body for each_bit_segment and
- * bit_segments.  Extracts one bit_length-bit segment from src at src_off and
- * either yields it (have_block) or pushes it onto ary.
- */
-static void
-sb_yield_or_push_segment(VALUE ary, int have_block,
-                         const unsigned char *src, long src_len,
-                         long src_off, long bit_length, long out_bytes,
-                         rb_encoding *enc)
-{
-    VALUE seg = rb_str_buf_new(out_bytes);
-    rb_str_resize(seg, out_bytes);
-    rb_enc_associate(seg, enc);
-    unsigned char *dst = (unsigned char *)RSTRING_PTR(seg);
-    memset(dst, 0, out_bytes);
-    sb_extract_bits(dst, out_bytes, src, src_len, src_off, bit_length);
-    have_block ? rb_yield(seg) : rb_ary_push(ary, seg);
-}
-
-/* String#each_bit_segment(bit_offset, bit_length, order: :lsb) { |str| } -> self
- * String#each_bit_segment(bit_offset, bit_length, order: :lsb) -> Enumerator
- *
- * Iterates over non-overlapping bit_length-bit segments of self, starting at
- * bit_offset.  Each segment is yielded as a new String (packed LSB-first,
- * matching bit_slice).  Incomplete trailing bits are silently dropped,
- * matching the behavior of Enumerable#each_slice.
- *
- * order: :lsb (default) -- segments yielded left-to-right (ascending bit position)
- * order: :msb           -- segments yielded right-to-left (last segment first)
- *
- * Porting to Ruby Core:
- *   1. Move alongside bit_slice in string.c; share sb_extract_bits.
- *   2. Register with rb_define_method in Init_String().
- */
-static VALUE
-rb_str_each_bit_segment(int argc, VALUE *argv, VALUE self)
-{
-    RETURN_ENUMERATOR(self, argc, argv);
-
-    VALUE off_val, len_val, opts;
-    rb_scan_args(argc, argv, "2:", &off_val, &len_val, &opts);
-
-    if (!rb_integer_type_p(off_val) || !rb_integer_type_p(len_val)) {
-        rb_raise(rb_eTypeError, "bit offset and length must be integers");
-    }
-
-    long bit_offset = integer_to_bit_idx(off_val);
-    long bit_length = integer_to_bit_idx(len_val);
-
-    if (bit_offset < 0)  rb_raise(rb_eArgError, "bit offset must be non-negative");
-    if (bit_length <= 0) rb_raise(rb_eArgError, "bit length must be positive");
-
-    int msb_first   = parse_order_opt(opts);
-    long src_len    = RSTRING_LEN(self);
-    long total_bits = src_len * 8;
-
-    if (bit_offset >= total_bits) return self;
-
-    long iterations = (total_bits - bit_offset) / bit_length;
-    long out_bytes  = (bit_length + 7) / 8;
-    rb_encoding *enc = rb_enc_get(self);
-
-    if (!msb_first) {
-        for (long iter = 0; iter < iterations; iter++) {
-            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            sb_yield_or_push_segment(Qnil, 1, src, src_len,
-                                     bit_offset + iter * bit_length,
-                                     bit_length, out_bytes, enc);
-        }
-    } else {
-        for (long iter = iterations - 1; iter >= 0; iter--) {
-            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            sb_yield_or_push_segment(Qnil, 1, src, src_len,
-                                     bit_offset + iter * bit_length,
-                                     bit_length, out_bytes, enc);
-        }
-    }
-
-    return self;
-}
-
-/* String#bit_segments(bit_offset, bit_length, order: :lsb) -> Array
- * String#bit_segments(bit_offset, bit_length, order: :lsb) { |str| } -> self
- *
- * Non-iterator complement of each_bit_segment.  Without a block, collects all
- * segments into an Array and returns it.  With a block, yields each segment
- * and returns self.
- *
- * Porting to Ruby Core:
- *   1. Move alongside each_bit_segment in string.c; share sb_extract_bits.
- *   2. Register with rb_define_method in Init_String().
- */
-static VALUE
-rb_str_bit_segments(int argc, VALUE *argv, VALUE self)
-{
-    VALUE off_val, len_val, opts;
-    rb_scan_args(argc, argv, "2:", &off_val, &len_val, &opts);
-
-    if (!rb_integer_type_p(off_val) || !rb_integer_type_p(len_val)) {
-        rb_raise(rb_eTypeError, "bit offset and length must be integers");
-    }
-
-    long bit_offset = integer_to_bit_idx(off_val);
-    long bit_length = integer_to_bit_idx(len_val);
-
-    if (bit_offset < 0)  rb_raise(rb_eArgError, "bit offset must be non-negative");
-    if (bit_length <= 0) rb_raise(rb_eArgError, "bit length must be positive");
-
-    int msb_first   = parse_order_opt(opts);
-    long src_len    = RSTRING_LEN(self);
-    long total_bits = src_len * 8;
-
-    if (bit_offset >= total_bits) return rb_ary_new();
-
-    long iterations = (total_bits - bit_offset) / bit_length;
-    long out_bytes  = (bit_length + 7) / 8;
-    rb_encoding *enc = rb_enc_get(self);
-
-    int have_block = rb_block_given_p();
-    VALUE result   = have_block ? Qnil : rb_ary_new_capa(iterations);
-
-    if (!msb_first) {
-        for (long iter = 0; iter < iterations; iter++) {
-            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            sb_yield_or_push_segment(result, have_block, src, src_len,
-                                     bit_offset + iter * bit_length,
-                                     bit_length, out_bytes, enc);
-        }
-    } else {
-        for (long iter = iterations - 1; iter >= 0; iter--) {
-            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-            sb_yield_or_push_segment(result, have_block, src, src_len,
-                                     bit_offset + iter * bit_length,
-                                     bit_length, out_bytes, enc);
-        }
-    }
-
-    return have_block ? self : result;
 }
 
 /* single-bit mutation ----------------------------------------------------- */
@@ -867,16 +724,13 @@ extract_uint64(const unsigned char *src, long src_len, long bit_offset, long bit
     return val;
 }
 
-/* String#each_bit_field(*bitlens, with: nil, order: :lsb) { |*fields[, extra]| } -> self
- * String#each_bit_field(*bitlens, with: nil, order: :lsb) -> Enumerator
+/* String#each_bit_field(*bitlens, order: :lsb) { |*fields| } -> self
+ * String#each_bit_field(*bitlens, order: :lsb) -> Enumerator
  *
  * Iterates over the string as a sequence of packed bit-field records. Each
  * positional argument specifies the width (in bits) of one field in the record.
  * On each iteration, one Integer per field is yielded (LSB-first bit layout).
  * Each bitlen must be in the range 1..64.
- *
- * with: :offset -- appends the bit offset of the current record to the block args.
- * with: :index  -- appends the 0-based yield-order index to the block args.
  *
  * order: :lsb (default) -- iterates from the first record forward.
  * order: :msb           -- iterates from the last complete record backward.
@@ -920,29 +774,14 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
         step += bl;
     }
 
-    int with_offset = 0, with_index = 0;
-    if (!NIL_P(opts)) {
-        VALUE v_with = rb_hash_aref(opts, sym_with);
-        if (!NIL_P(v_with)) {
-            if (v_with == sym_offset) {
-                with_offset = 1;
-            } else if (v_with == sym_index) {
-                with_index = 1;
-            } else {
-                rb_raise(rb_eArgError, "with: must be :offset or :index");
-            }
-        }
-    }
     int msb_first = parse_order_opt(opts);
 
     long src_len = RSTRING_LEN(self);
     long total_bits = src_len * 8;
     long iterations = total_bits / step;
 
-    long yield_count = num_fields + (with_offset || with_index ? 1 : 0);
-    VALUE *field_vals = ALLOCA_N(VALUE, yield_count);
+    VALUE *field_vals = ALLOCA_N(VALUE, num_fields);
 
-    long yield_iter = 0;
     if (!msb_first) {
         for (long iter = 0; iter < iterations; iter++) {
             long base_bit = iter * step;
@@ -952,9 +791,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
                 field_vals[f] = ULL2NUM(extract_uint64(src, src_len, field_bit, bitlens[f]));
                 field_bit += bitlens[f];
             }
-            if (with_offset) field_vals[num_fields] = LONG2NUM(base_bit);
-            if (with_index)  field_vals[num_fields] = LONG2NUM(yield_iter++);
-            rb_yield_values2((int)yield_count, field_vals);
+            rb_yield_values2((int)num_fields, field_vals);
         }
     } else {
         for (long iter = iterations - 1; iter >= 0; iter--) {
@@ -965,9 +802,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
                 field_vals[f] = ULL2NUM(extract_uint64(src, src_len, field_bit, bitlens[f]));
                 field_bit += bitlens[f];
             }
-            if (with_offset) field_vals[num_fields] = LONG2NUM(base_bit);
-            if (with_index)  field_vals[num_fields] = LONG2NUM(yield_iter++);
-            rb_yield_values2((int)yield_count, field_vals);
+            rb_yield_values2((int)num_fields, field_vals);
         }
     }
 
@@ -1684,20 +1519,15 @@ Init_string_bits(void)
     sym_order  = ID2SYM(rb_intern("order"));
     sym_lsb    = ID2SYM(rb_intern("lsb"));
     sym_msb    = ID2SYM(rb_intern("msb"));
-    sym_with   = ID2SYM(rb_intern("with"));
-    sym_offset = ID2SYM(rb_intern("offset"));
-    sym_index  = ID2SYM(rb_intern("index"));
     sym_invert = ID2SYM(rb_intern("invert"));
 
     rb_define_method(rb_cString, "bit_at",            rb_str_bit_at,           -1);
     rb_define_method(rb_cString, "bit_count",         rb_str_bit_count,         0);
     rb_define_method(rb_cString, "each_bit",          rb_str_each_bit,         -1);
     rb_define_method(rb_cString, "bits",              rb_str_bits,             -1);
-    rb_define_method(rb_cString, "each_set_bit",      rb_str_each_set_bit,     -1);
+    rb_define_method(rb_cString, "each_set_bit_position", rb_str_each_set_bit_position, -1);
     rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
-    rb_define_method(rb_cString, "each_bit_segment",  rb_str_each_bit_segment, -1);
-    rb_define_method(rb_cString, "bit_segments",      rb_str_bit_segments,     -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);
     rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
