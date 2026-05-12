@@ -50,7 +50,7 @@ class TestEachBitField < Minitest::Test
   def test_extracted_bits_match_bit_at
     data = "\xAA\xCC\xFF\x00"
     bitlen = 6
-    data.each_bit_field(bitlen).each_with_index do |val, iter|
+    data.each_bit_field(bitlen).with_index do |val, iter|
       bitlen.times do |j|
         expected = data.bit_at(iter * bitlen + j) ? 1 : 0
         assert_equal expected, (val >> j) & 1, "iteration #{iter}, bit #{j}"
@@ -60,7 +60,7 @@ class TestEachBitField < Minitest::Test
 
   def test_12bit_single_field_bits_match
     data = "\xAA\xCC\xFF"
-    data.each_bit_field(12).each_with_index do |val, iter|
+    data.each_bit_field(12).with_index do |val, iter|
       12.times do |j|
         expected = data.bit_at(iter * 12 + j) ? 1 : 0
         assert_equal expected, (val >> j) & 1, "iteration #{iter}, bit #{j}"

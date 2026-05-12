@@ -51,14 +51,14 @@ data.each_bit_field(8, 8).to_a
 
 **RGB565 pixel manipulation**
 
-Bit offsets and iteration indices are derived outside the block. `each_with_index` wraps the
+Bit offsets and iteration indices are derived outside the block. `with_index` wraps the
 enumerator form; the bit offset of each record is `iter * step` where `step` is the sum of
 bitlens (16 for 5+6+5).
 
 ```ruby
 # eg1: Swap R and B channels in an RGB565 buffer
 # RGB565 LSB-first layout: bits 0-4 = blue (5), bits 5-10 = green (6), bits 11-15 = red (5)
-rgb565data.each_bit_field(5, 6, 5, order: :lsb).each_with_index do |(b, _g, r), iter|
+rgb565data.each_bit_field(5, 6, 5, order: :lsb).with_index do |(b, _g, r), iter|
   offset = iter * 16
   rgb565data.bit_splice(offset,      5, r)  # write red into the blue field
   rgb565data.bit_splice(offset + 11, 5, b)  # write blue into the red field
@@ -66,7 +66,7 @@ end
 
 # eg2: Convert RGB565 to 4-bit grayscale
 gray4data = "\x00" * (rgb565data.bytesize / 4)
-rgb565data.each_bit_field(5, 6, 5, order: :lsb).each_with_index do |(b, g, r), index|
+rgb565data.each_bit_field(5, 6, 5, order: :lsb).with_index do |(b, g, r), index|
   gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
   gray4data.bit_splice(index * 4, 4, gray8 >> 4)
 end
