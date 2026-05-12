@@ -204,7 +204,6 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 
 #### `bit_splice(bit_index, bit_length, str, order: :lsb) -> self`
 #### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, order: :lsb) -> self`
-#### `bit_splice(bit_index, bit_length, integer, order: :lsb) -> self`
 #### `bit_splice(range, str, order: :lsb) -> self`
 #### `bit_splice(range, str, str_range, order: :lsb) -> self`
 
