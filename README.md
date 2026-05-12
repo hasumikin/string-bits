@@ -15,6 +15,7 @@ The methods are designed for real workloads: Apache Arrow validity bitmaps, bitm
 | iterate bits | `each_bit`, `bits` | yes | yes |
 | iterate set-bit positions | `each_set_bit`, `set_bit_positions` | yes | yes |
 | extract | `bit_slice` | no | yes |
+| extract and iterate | `each_bit_slice` | no | yes |
 | multi-bit mutation | `bit_splice` | yes | yes |
 | run-length iteration | `each_bit_run`, `bit_run_count` | yes | yes |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | yes |
@@ -204,6 +205,48 @@ Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC seri
 ```ruby
 # Arrow in-memory slice has bit offset 5; IPC requires offset 0
 ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
+```
+
+---
+
+#### `each_bit_slice(bit_offset, bit_length, order: :lsb) { |str| } -> self`
+#### `each_bit_slice(bit_offset, bit_length, order: :lsb) -> Enumerator`
+
+Iterates over non-overlapping `bit_length`-bit slices of the string, starting at `bit_offset`. Each slice is yielded as a new `String` in the same LSB-first packed layout as `bit_slice`. Without a block, returns an `Enumerator`. Incomplete trailing bits are silently dropped, matching the behavior of `Enumerable#each_slice`.
+
+```
+order: :lsb (default)  -- slices yielded from bit_offset forward (ascending bit position)
+order: :msb            -- slices yielded from the last complete slice backward
+```
+
+```ruby
+data = "\xAA\xCC\xFF\x00"   # 32 bits
+
+data.each_bit_slice(0, 8).to_a
+#=> ["\xAA", "\xCC", "\xFF", "\x00"]
+
+data.each_bit_slice(0, 16).to_a
+#=> ["\xAA\xCC", "\xFF\x00"]
+
+# Non-byte-aligned: 6-bit slices starting at offset 0
+data.each_bit_slice(0, 6) { |s| process(s) }   # 5 slices, 2 trailing bits dropped
+
+# Start mid-stream (e.g. skip a header)
+data.each_bit_slice(8, 8).to_a
+#=> ["\xCC", "\xFF", "\x00"]
+
+# Reverse order
+data.each_bit_slice(0, 8, order: :msb).to_a
+#=> ["\x00", "\xFF", "\xCC", "\xAA"]
+```
+
+Each yielded slice can be passed directly to any other method in this API:
+
+```ruby
+data.each_bit_slice(0, 8) do |byte|
+  puts byte.bit_count          # popcount per byte
+  byte.each_set_bit { |n| ... }
+end
 ```
 
 ---

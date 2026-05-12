@@ -451,6 +451,38 @@ rb_str_set_bit_positions(int argc, VALUE *argv, VALUE self)
 
 /* extract ----------------------------------------------------------------- */
 
+/*
+ * sb_extract_bits: copy bit_length bits from src[src_bit_off] into dst[0..],
+ * producing an LSB-first packed byte string with the tail byte masked.
+ * dst must be zeroed and sized to (bit_length + 7) / 8 bytes.
+ *
+ * Shared by rb_str_bit_slice and rb_str_each_bit_slice to avoid duplication.
+ */
+static void
+sb_extract_bits(unsigned char *dst, long out_bytes,
+                const unsigned char *src, long src_len,
+                long src_bit_off, long bit_length)
+{
+    long byte_off = src_bit_off >> 3;
+    int shift = (int)(src_bit_off & 7);
+
+    if (shift == 0) {
+        memcpy(dst, src + byte_off, out_bytes);
+    } else {
+        int anti_shift = 8 - shift;
+        for (long i = 0; i < out_bytes; i++) {
+            unsigned char lo = src[byte_off + i];
+            unsigned char hi = (byte_off + i + 1 < src_len) ? src[byte_off + i + 1] : 0;
+            dst[i] = (unsigned char)((lo >> shift) | (hi << anti_shift));
+        }
+    }
+
+    int tail_bits = (int)(bit_length & 7);
+    if (tail_bits) {
+        dst[out_bytes - 1] &= (unsigned char)((1u << tail_bits) - 1);
+    }
+}
+
 /* String#bit_slice(bit_offset, bit_length) -> String
  *
  *   str = "\xFF\x00" # 11111111 00000000
@@ -497,29 +529,86 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     rb_str_resize(result, out_bytes);
     rb_enc_associate(result, rb_enc_get(self));
     unsigned char *dst = (unsigned char *)RSTRING_PTR(result);
-
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-    long byte_off = offset >> 3;
-    int shift = (int)(offset & 7);
+    sb_extract_bits(dst, out_bytes, src, src_len, offset, length);
+    return result;
+}
 
-    if (shift == 0) {
-        memcpy(dst, src + byte_off, out_bytes);
+/* String#each_bit_slice(bit_offset, bit_length, order: :lsb) { |str| } -> self
+ * String#each_bit_slice(bit_offset, bit_length, order: :lsb) -> Enumerator
+ *
+ * Iterates over non-overlapping bit_length-bit slices of self, starting at
+ * bit_offset.  Each slice is yielded as a new String (packed LSB-first,
+ * matching bit_slice).  Incomplete trailing bits are silently dropped,
+ * matching the behavior of Enumerable#each_slice.
+ *
+ * order: :lsb (default) -- slices yielded left-to-right (ascending bit position)
+ * order: :msb           -- slices yielded right-to-left (last slice first)
+ *
+ * Porting to Ruby Core:
+ *   1. Move alongside bit_slice in string.c; share sb_extract_bits.
+ *   2. Register with rb_define_method in Init_String().
+ */
+static VALUE
+rb_str_each_bit_slice(int argc, VALUE *argv, VALUE self)
+{
+    RETURN_ENUMERATOR(self, argc, argv);
+
+    VALUE off_val, len_val, opts;
+    rb_scan_args(argc, argv, "2:", &off_val, &len_val, &opts);
+
+    if (!rb_integer_type_p(off_val) || !rb_integer_type_p(len_val)) {
+        rb_raise(rb_eTypeError, "bit offset and length must be integers");
     }
-    else {
-        int anti_shift = 8 - shift;
-        for (long i = 0; i < out_bytes; i++) {
-            unsigned char lo = src[byte_off + i];
-            unsigned char hi = (byte_off + i + 1 < src_len) ? src[byte_off + i + 1] : 0;
-            dst[i] = (unsigned char)((lo >> shift) | (hi << anti_shift));
+
+    long bit_offset = integer_to_bit_idx(off_val);
+    long bit_length = integer_to_bit_idx(len_val);
+
+    if (bit_offset < 0) {
+        rb_raise(rb_eArgError, "bit offset must be non-negative");
+    }
+    if (bit_length <= 0) {
+        rb_raise(rb_eArgError, "bit length must be positive");
+    }
+
+    int msb_first = parse_order_opt(opts);
+
+    long src_len   = RSTRING_LEN(self);
+    long total_bits = src_len * 8;
+
+    if (bit_offset >= total_bits) return self;
+
+    long available  = total_bits - bit_offset;
+    long iterations = available / bit_length;
+    long out_bytes  = (bit_length + 7) / 8;
+
+    if (!msb_first) {
+        for (long iter = 0; iter < iterations; iter++) {
+            long src_off = bit_offset + iter * bit_length;
+            VALUE slice  = rb_str_buf_new(out_bytes);
+            rb_str_resize(slice, out_bytes);
+            rb_enc_associate(slice, rb_enc_get(self));
+            unsigned char       *dst = (unsigned char *)RSTRING_PTR(slice);
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            memset(dst, 0, out_bytes);
+            sb_extract_bits(dst, out_bytes, src, src_len, src_off, bit_length);
+            rb_yield(slice);
+        }
+    } else {
+        for (long iter = iterations - 1; iter >= 0; iter--) {
+            long src_off = bit_offset + iter * bit_length;
+            VALUE slice  = rb_str_buf_new(out_bytes);
+            rb_str_resize(slice, out_bytes);
+            rb_enc_associate(slice, rb_enc_get(self));
+            unsigned char       *dst = (unsigned char *)RSTRING_PTR(slice);
+            const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
+            memset(dst, 0, out_bytes);
+            sb_extract_bits(dst, out_bytes, src, src_len, src_off, bit_length);
+            rb_yield(slice);
         }
     }
 
-    int tail_bits = (int)(length & 7);
-    if (tail_bits) {
-        dst[out_bytes - 1] &= (unsigned char)((1u << tail_bits) - 1);
-    }
-
-    return result;
+    return self;
 }
 
 /* single-bit mutation ----------------------------------------------------- */
@@ -1543,6 +1632,7 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "each_set_bit",      rb_str_each_set_bit,     -1);
     rb_define_method(rb_cString, "set_bit_positions", rb_str_set_bit_positions,-1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
+    rb_define_method(rb_cString, "each_bit_slice",    rb_str_each_bit_slice,   -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
     rb_define_method(rb_cString, "each_bit_fields",   rb_str_each_bit_fields,  -1);
     rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
