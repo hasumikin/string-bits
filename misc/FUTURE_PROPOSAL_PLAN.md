@@ -1,9 +1,18 @@
-# Future Proposal: Packed Bit-Field Iteration
+# Future Proposal Plan
 
-This file documents `each_bit_field` and `bit_fields`, which are implemented and tested
+This file documents `each_bit_field` and `bit_fields` as well as `Array#mask`, which are implemented and tested
 but intentionally excluded from the main proposal in README.md.
 
-## Reason for deferral
+## Bitmask Operation into Array
+
+### Methods for Array
+
+- `mask(bitmap, count_from: :lsb, invert: false) -> Array`
+- `mask!(bitmap, count_from: :lsb, invert: false) -> self`
+
+## Packed Bit-Field Iteration
+
+### Reason for deferral
 
 These methods yield plain `Integer` values, which is a different yield type from all other
 iteration methods in the proposal (which yield `true`/`false` or flat `Integer` positions).
@@ -11,7 +20,7 @@ Introducing a method that yields typed field values decoded from a packed binary
 expected to prolong discussion on the core-ruby-dev mailing list. The rest of the proposal
 is kept clean to reduce that risk.
 
-### Open design question: field assembly direction vs. traversal direction
+#### Open design question: field assembly direction vs. traversal direction
 
 For packed field extraction, there are two separate axes:
 
@@ -123,8 +132,8 @@ with `bit_splice` require no intermediate conversion or packing step.
 
 ---
 
-## `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) -> Array`
-## `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) { |*fields| } -> self`
+### `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) -> Array`
+### `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) { |*fields| } -> self`
 
 Non-iterator complement of `each_bit_field`. Without a block, collects all records into an
 `Array` and returns it. With a block, yields the same values as `each_bit_field` (without
@@ -156,7 +165,7 @@ compute offsets or indices from the returned array directly.
 
 ---
 
-## Use Case: IoT Sensor Telemetry (Non-Byte-Aligned Packed Frames)
+### Use Case: IoT Sensor Telemetry (Non-Byte-Aligned Packed Frames)
 
 Compact binary telemetry protocols pack multiple sensor readings into sub-byte-aligned fields
 to minimize transmission overhead. A typical environmental sensor might encode three

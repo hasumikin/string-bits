@@ -1518,7 +1518,10 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
 }
 
 /* Array#mask and Array#mask! --------------------------------------- */
-
+/*
+ * NOTE: Array#mask and Array#mask! are implemented here and fully tested,
+ * but are NOT part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
+ */
 /*
  * parse_mask_kwargs: extract bitmap, count_from:, and invert: from method arguments.
  *
@@ -1691,8 +1694,6 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "set_bit_offsets",   rb_str_set_bit_offsets,  -1);
     rb_define_method(rb_cString, "bit_slice",         rb_str_bit_slice,        -1);
     rb_define_method(rb_cString, "bit_splice",        rb_str_bit_splice,       -1);
-    rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);
-    rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
     rb_define_method(rb_cString, "bit_run_count",     rb_str_bit_run_count,    -1);
     rb_define_method(rb_cString, "each_bit_run",      rb_str_each_bit_run,     -1);
     rb_define_method(rb_cString, "bit_runs",          rb_str_bit_runs,         -1);
@@ -1707,6 +1708,10 @@ Init_string_bits(void)
     rb_define_method(rb_cString, "bit_or!",           rb_str_bit_or_bang,       1);
     rb_define_method(rb_cString, "bit_xor",           rb_str_bit_xor,           1);
     rb_define_method(rb_cString, "bit_xor!",          rb_str_bit_xor_bang,      1);
-    rb_define_method(rb_cArray,  "mask",              rb_ary_mask,          -1);
-    rb_define_method(rb_cArray,  "mask!",             rb_ary_mask_bang,     -1);
+
+    // These methods are defined here to avoid cluttering this file, but they are not part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
+    rb_define_method(rb_cString, "each_bit_field",    rb_str_each_bit_field,   -1);
+    rb_define_method(rb_cString, "bit_fields",        rb_str_bit_fields,       -1);
+    rb_define_method(rb_cArray,  "mask",              rb_ary_mask,             -1);
+    rb_define_method(rb_cArray,  "mask!",             rb_ary_mask_bang,        -1);
 }
