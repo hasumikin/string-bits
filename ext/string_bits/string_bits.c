@@ -488,7 +488,23 @@ sb_extract_bits(unsigned char *dst, long out_bytes,
         memcpy(dst, src + byte_off, out_bytes);
     } else {
         int anti_shift = 8 - shift;
-        for (long i = 0; i < out_bytes; i++) {
+        long i = 0;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        long out_bytes64 = out_bytes / 8;
+        for (; i < out_bytes64; i++) {
+            if (byte_off + i * 8 + 8 < src_len) {
+                uint64_t lo;
+                memcpy(&lo, src + byte_off + i * 8, 8);
+                uint64_t next_byte = src[byte_off + i * 8 + 8];
+                uint64_t val = (lo >> shift) | (next_byte << (64 - shift));
+                memcpy(dst + i * 8, &val, 8);
+            } else {
+                break;
+            }
+        }
+        i *= 8;
+#endif
+        for (; i < out_bytes; i++) {
             unsigned char lo = src[byte_off + i];
             unsigned char hi = (byte_off + i + 1 < src_len) ? src[byte_off + i + 1] : 0;
             dst[i] = (unsigned char)((lo >> shift) | (hi << anti_shift));
@@ -1374,11 +1390,27 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
             }
             uint64_t ival = FIXNUM_P(v2) ? (uint64_t)FIX2LONG(v2) : NUM2ULL(v2);
             if (dst_bit_len < 64) ival &= (UINT64_C(1) << dst_bit_len) - 1;
+
+            rb_str_modify(self);
+            unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);
+
+            /* Fast path for small writes fitting in 1-8 bytes */
+            if (dst_bit_off + dst_bit_len <= dst_total) {
+                long byte_off = dst_bit_off >> 3;
+                int shift = dst_bit_off & 7;
+                if (shift + dst_bit_len <= 64 && byte_off + 8 <= (dst_total >> 3)) {
+                    uint64_t word;
+                    memcpy(&word, ptr + byte_off, 8);
+                    uint64_t mask = ((UINT64_C(1) << dst_bit_len) - 1) << shift;
+                    word = (word & ~mask) | ((ival << shift) & mask);
+                    memcpy(ptr + byte_off, &word, 8);
+                    return self;
+                }
+            }
+
             unsigned char tmp[8] = {0};
             for (int i = 0; i < 8; i++) tmp[i] = (unsigned char)(ival >> (i * 8));
-            rb_str_modify(self);
-            bit_copy_core((unsigned char *)RSTRING_PTR(self), dst_bit_off,
-                          tmp, 8, 0, dst_bit_len);
+            bit_copy_core(ptr, dst_bit_off, tmp, 8, 0, dst_bit_len);
             return self;
         }
 
