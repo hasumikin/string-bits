@@ -1396,7 +1396,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         src_bit_len = len;
     }
     else if (n_pos == 3) {
-        /* bit_splice(bit_index, bit_length, str_or_integer) */
+        /* bit_splice(bit_index, bit_length, str) */
         if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1)) {
             rb_raise(rb_eTypeError, "bit index and length must be integers");
         }
@@ -1404,43 +1404,14 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
         dst_bit_len = integer_to_bit_idx(v1);
         if (dst_bit_off < 0) dst_bit_off += dst_total;
 
+        /*
+         * Integer source support was prototyped here, but it is intentionally
+         * disabled in the current proposal to keep the public API limited to
+         * String-to-String splicing.
+         */
         if (rb_integer_type_p(v2)) {
-            /* Integer source: pack lower dst_bit_len bits (upper bits truncated). */
-            if (dst_bit_len < 1 || dst_bit_len > 64) {
-                rb_raise(rb_eArgError,
-                         "bit_splice: bit length must be 1..64 when source is Integer"
-                         " (got %ld)", dst_bit_len);
-            }
-            if (msb_first) dst_bit_off = dst_total - dst_bit_off - dst_bit_len;
-            if (dst_bit_off < 0 || dst_bit_off + dst_bit_len > dst_total) {
-                rb_raise(rb_eIndexError,
-                         "bit_splice: destination range [%ld, %ld] out of bounds"
-                         " (total %ld bits)", dst_bit_off, dst_bit_len, dst_total);
-            }
-            uint64_t ival = FIXNUM_P(v2) ? (uint64_t)FIX2LONG(v2) : NUM2ULL(v2);
-            if (dst_bit_len < 64) ival &= (UINT64_C(1) << dst_bit_len) - 1;
-
-            rb_str_modify(self);
-            unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);
-
-            /* Fast path for small writes fitting in 1-8 bytes */
-            if (dst_bit_off + dst_bit_len <= dst_total) {
-                long byte_off = dst_bit_off >> 3;
-                int shift = dst_bit_off & 7;
-                if (shift + dst_bit_len <= 64 && byte_off + 8 <= (dst_total >> 3)) {
-                    uint64_t word;
-                    memcpy(&word, ptr + byte_off, 8);
-                    uint64_t mask = ((UINT64_C(1) << dst_bit_len) - 1) << shift;
-                    word = (word & ~mask) | ((ival << shift) & mask);
-                    memcpy(ptr + byte_off, &word, 8);
-                    return self;
-                }
-            }
-
-            unsigned char tmp[8] = {0};
-            for (int i = 0; i < 8; i++) tmp[i] = (unsigned char)(ival >> (i * 8));
-            bit_copy_core(ptr, dst_bit_off, tmp, 8, 0, dst_bit_len);
-            return self;
+            rb_raise(rb_eArgError,
+                     "bit_splice source must be a String in the current proposal");
         }
 
         str = v2;
