@@ -244,9 +244,18 @@ rb_str_bit_count(VALUE self)
     long count = 0;
     long len = RSTRING_LEN(self);
     const char *str = RSTRING_PTR(self);
+    const uint64_t *ptr = (const uint64_t *)str;
     const uint64_t *aligned_end = (const uint64_t *)(str + (len & ~7));
+    const uint64_t *unrolled_end = (const uint64_t *)(str + (len & ~31));
 
-    for (const uint64_t *ptr = (const uint64_t *)str; ptr < aligned_end; ptr++) {
+    for (; ptr < unrolled_end; ptr += 4) {
+        count += sb_popcount64(ptr[0]);
+        count += sb_popcount64(ptr[1]);
+        count += sb_popcount64(ptr[2]);
+        count += sb_popcount64(ptr[3]);
+    }
+
+    for (; ptr < aligned_end; ptr++) {
         count += sb_popcount64(*ptr);
     }
 
