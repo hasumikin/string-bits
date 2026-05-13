@@ -6,6 +6,7 @@ prelude: |
   # N 4-bit slots; even indices are byte-aligned, odd indices are offset by 4
   BUF_BYTES = (N * 4 + 7) / 8
   VALUES    = Array.new(N) { rand(16) }
+  SOURCES   = VALUES.map { |val| [val].pack('C') }
 
 benchmark:
   baseline: |
@@ -24,5 +25,5 @@ benchmark:
     buf
   string_bits: |
     buf = ("\x00" * BUF_BYTES).b
-    VALUES.each_with_index { |val, i| buf.bit_splice(i * 4, 4, val) }
+    SOURCES.each_with_index { |src, i| buf.bit_splice(i * 4, 4, src) }
     buf

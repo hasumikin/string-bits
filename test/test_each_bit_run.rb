@@ -78,55 +78,6 @@ class TestBitCountRun < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_run_count(0, nil) }
   end
 
-  def test_arg_error_on_invalid_order
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(0, 1, order: :foo) }
-  end
-
-  # --- order: :msb ---
-
-  def test_msb_all_ones
-    # 0xFF: bit 7 is 1, 8-bit run backward from bit 7
-    assert_equal 8, "\xFF".bit_run_count(7, 1, order: :msb)
-  end
-
-  def test_msb_all_zeros
-    assert_equal 8, "\x00".bit_run_count(7, 0, order: :msb)
-  end
-
-  def test_msb_two_runs
-    # 0xF0 = 11110000: bits 7-4 are 1, bits 3-0 are 0
-    assert_equal 4, "\xF0".bit_run_count(7, 1, order: :msb)  # 4 ones from bit 7 downward
-    assert_equal 4, "\xF0".bit_run_count(3, 0, order: :msb)  # 4 zeros from bit 3 downward
-  end
-
-  def test_msb_cross_byte_run
-    # "\xFF\xFF\x00": bits 15-0 are 1, bits 23-16 are 0
-    # From bit 15 going backward: 16 ones
-    assert_equal 16, "\xFF\xFF\x00".bit_run_count(15, 1, order: :msb)
-    # From bit 23 going backward: 8 zeros
-    assert_equal 8,  "\xFF\xFF\x00".bit_run_count(23, 0, order: :msb)
-  end
-
-  def test_msb_bit_mismatch_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(7, 0, order: :msb)
-    assert_equal 0, "\x00".bit_run_count(7, 1, order: :msb)
-  end
-
-  def test_msb_out_of_range_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(8,  1, order: :msb)
-    assert_equal 0, "\xFF".bit_run_count(-1, 1, order: :msb)
-  end
-
-  def test_msb_matches_each_bit_run_msb
-    data = "\xAA\xCC\xFF\x00\xF0"
-    pos = data.bytesize * 8 - 1
-    data.each_bit_run(order: :msb) do |bit, len|
-      assert_equal len, data.bit_run_count(pos, bit, order: :msb),
-        "bit_run_count(#{pos}, #{bit}, order: :msb) should be #{len}"
-      pos -= len
-    end
-  end
-
   # --- cross-byte with long run (exercises the 64-bit word path) ---
 
   def test_long_run_ones

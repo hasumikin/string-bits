@@ -40,7 +40,7 @@ The `order:` keyword controls **interpretation and traversal direction**. It def
 | `:lsb` (default) | low -> high | 0, 1, 2, ... , total-1 |
 | `:msb`   | high -> low | total-1, ..., 2, 1, 0 |
 
-For iterative methods (`each_bit`, `each_set_bit_offset`), it controls yield order. For index-based methods (`bit_at`, `bit_slice`, `bit_splice`, `set_bit`, etc.), it defines the mapping of logical index `n` to physical bit position.
+For iterative methods (`each_bit`, `each_set_bit_offset`, `each_bit_run`), it controls yield order. For index-based methods (`bit_at`, `set_bit`, `clear_bit`, `flip_bit`) and for `Array#mask`, it defines the mapping of logical index `n` to physical bit position. `bit_slice`, `bit_splice`, and `bit_run_count` operate exclusively in flat LSB-first numbering and do not accept `order:` --- their range/scan semantics have no well-defined dual under reverse indexing.
 
 Important: `order: :msb` does **not** mean "keep byte order and only flip the bit numbering inside each byte". It means reverse indexing over the entire bit sequence: logical position 0 is the last physical bit of the string, logical position 1 is the second-last physical bit, and so on.
 
@@ -94,17 +94,13 @@ The obvious alternative is a dedicated `BitSet` class (analogous to Java's `java
 | domain | native bit ordering | compatibility with current design |
 |--------|---------------------|------------------------------------|
 | Apache Arrow validity bitmap | LSB-first (element i = byte[i/8] bit i%8) | native |
-| ARM / STM32 hardware registers | bit 0 = LSB (ARM Architecture Reference Manual) | native |
-| BLE advertising PDU (air transmission order) | LSB-first | native |
-| IEEE 802.15.4 / Zigbee | LSB-first | native |
-| PostgreSQL visibility map, ext4 block bitmap | LSB-first | native |
-| Roaring Bitmap (analytics databases) | LSB-first | native |
+| ARM / STM32 register fields | register convention: bit 0 = LSB | analogous |
+| ext4 block bitmap | LSB-first | native |
 | RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | not native; explicit offset conversion needed |
 | BitTorrent bitfield message | piece 0 = MSB of byte 0 | not native; explicit offset conversion needed |
 | PNG 1/2/4-bit scanlines | MSB = leftmost pixel | not native; explicit offset conversion needed |
-| Huffman / LZ compressed bit streams | MSB written first into each byte | not native; explicit offset conversion needed |
 
-Domains using LSB-first numbering align directly with this API. Domains using MSB-first numbering inside each byte are still addressable, but require explicit offset conversion because `order: :msb` reverses the whole bit sequence rather than preserving byte order.
+The table is limited to cases where bit numbering is directly relevant to a byte buffer held in memory. LSB-first layouts align directly with this API. MSB-first layouts inside each byte are still addressable, but require explicit offset conversion because `order: :msb` reverses the whole bit sequence rather than preserving byte order.
 
 ### Apache Arrow Compatibility
 
@@ -169,11 +165,9 @@ For single-bit access the byte offset is already expressible through `n`. For bu
 ```ruby
 buf    = IO::Buffer.map(File.open("data.arrow"))
 bitmap = buf.slice(validity_offset, bitmap_bytes)  # no copy
-# bitmap is a zero-copy window; future String bit methods
-# operating on IO::Buffer would apply here.
 ```
 
-The proposed `String` methods cover the common case where a column buffer has already been materialized as a `String` (for example via socket reads, MessagePack, or `byteslice`). `IO::Buffer` and `String` are complementary here:
+The proposed `String` methods cover the common case where a column buffer has already been materialized as a `String` (for example via socket reads, MessagePack, or `byteslice`). `IO::Buffer` is not a replacement for this proposal; the two serve different layers:
 
 * `IO::Buffer`: memory ownership, zero-copy slicing, I/O operations
 * `String` (proposed): bit-level iteration and manipulation of materialized byte data

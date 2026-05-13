@@ -525,8 +525,8 @@ sb_extract_bits(unsigned char *dst, long out_bytes,
 static VALUE
 rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
 {
-    VALUE bit_offset, bit_length, opts;
-    rb_scan_args(argc, argv, "2:", &bit_offset, &bit_length, &opts);
+    VALUE bit_offset, bit_length;
+    rb_scan_args(argc, argv, "20", &bit_offset, &bit_length);
 
     if (!rb_integer_type_p(bit_offset) || !rb_integer_type_p(bit_length)) {
         return Qnil;
@@ -540,21 +540,9 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
     long src_len = RSTRING_LEN(self);
     long total_bits = src_len * 8;
 
-    int msb_first = parse_order_opt(opts);
-
     if (offset > total_bits) return Qnil;
     long available = total_bits - offset;
     if (length > available) length = available;
-
-    if (msb_first) {
-        /* In MSB order, logical offset 0 is physical total_bits-1.
-         * A slice of length L starting at logical offset O
-         * maps to physical bits (total_bits - 1 - O) down to (total_bits - O - L).
-         * The physical start bit for bit_copy (LSB-first) is the lowest bit index.
-         * physical_offset = total_bits - O - L.
-         */
-        offset = total_bits - offset - length;
-    }
 
     if (length == 0) return rb_str_new("", 0);
 
@@ -1086,7 +1074,7 @@ byte_by_byte:
     return count < max_run ? count : max_run;
 }
 
-/* String#bit_run_count(pos, bit, order: :lsb) -> Integer
+/* String#bit_run_count(pos, bit) -> Integer
  *
  * Returns the length of the consecutive run of `bit` starting at flat
  * position `pos`.  Returns 0 when `pos` is out of range or the bit at `pos`
@@ -1095,10 +1083,9 @@ byte_by_byte:
  * `bit` accepts 0, 1, false, or true (false/true are aliases for 0/1,
  * matching the values yielded by each_bit_run).
  *
- * order: :lsb (default) counts forward (toward higher bit indices).
- * order: :msb counts backward (toward lower bit indices).
+ * Counts forward from `pos` toward higher bit indices.
  *
- * Equivalent to Gauche Scheme's (bitvector-count-run bit bvec i).
+ * Inspired by Gauche Scheme's (bitvector-count-run bit bvec i).
  *
  * Uses the same flat LSB-first addressing as bit_at: byte[pos/8] bit pos%8.
  *
@@ -1109,8 +1096,8 @@ byte_by_byte:
 static VALUE
 rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
 {
-    VALUE pos_val, bit_val, opts;
-    rb_scan_args(argc, argv, "2:", &pos_val, &bit_val, &opts);
+    VALUE pos_val, bit_val;
+    rb_scan_args(argc, argv, "20", &pos_val, &bit_val);
 
     if (!rb_integer_type_p(pos_val)) {
         rb_raise(rb_eTypeError, "position must be an integer");
@@ -1123,15 +1110,12 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     } else {
         rb_raise(rb_eArgError, "bit must be 0, 1, false, or true");
     }
-    int msb_first = parse_order_opt(opts);
     long pos     = integer_to_bit_idx(pos_val);
     long src_len = RSTRING_LEN(self);
     if (pos < 0 || pos >= src_len * 8) return LONG2FIX(0);
 
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
     if (((src[pos >> 3] >> (pos & 7)) & 1) != target) return LONG2FIX(0);
-    if (msb_first)
-        return LONG2FIX(count_run_msb(src, pos, target));
     return LONG2FIX(count_run_lsb(src, src_len, pos, target));
 }
 
@@ -1362,11 +1346,9 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     long src_bit_off, src_bit_len;
     VALUE str;
     long dst_total = RSTRING_LEN(self) * 8;
-    VALUE v0, v1, v2, v3, v4, opts;
+    VALUE v0, v1, v2, v3, v4;
 
-    int n_pos = rb_scan_args(argc, argv, "23:", &v0, &v1, &v2, &v3, &v4, &opts);
-
-    int msb_first = parse_order_opt(opts);
+    int n_pos = rb_scan_args(argc, argv, "23", &v0, &v1, &v2, &v3, &v4);
 
     if (n_pos == 2 && rb_obj_is_kind_of(v0, rb_cRange)) {
         /* bit_splice(range, str) */
@@ -1438,12 +1420,6 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     else {
         rb_raise(rb_eArgError,
                  "wrong number of arguments (given %d, expected 2, 3, or 5)", n_pos);
-    }
-
-    if (msb_first) {
-        dst_bit_off = dst_total - dst_bit_off - dst_bit_len;
-        long src_total_bits = RSTRING_LEN(str) * 8;
-        src_bit_off = src_total_bits - src_bit_off - src_bit_len;
     }
 
     if (dst_bit_off < 0 || dst_bit_len < 0 || dst_bit_off + dst_bit_len > dst_total) {

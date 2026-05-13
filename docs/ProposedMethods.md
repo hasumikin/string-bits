@@ -10,9 +10,9 @@
 | iterate bits | `bits` | yes (`Array`) | yes |
 | iterate set-bit positions | `each_set_bit_offset` | no | yes |
 | iterate set-bit positions | `set_bit_offsets` | yes (`Array`) | yes |
-| extract | `bit_slice` | yes (`String`) | yes |
-| multi-bit mutation | `bit_splice` | no | yes |
-| run-length iteration | `bit_run_count` | no | yes |
+| extract | `bit_slice` | yes (`String`) | no |
+| multi-bit mutation | `bit_splice` | no | no |
+| run-length iteration | `bit_run_count` | no | no |
 | run-length iteration | `each_bit_run` | no | yes |
 | run-length iteration | `bit_runs` | yes (`Array`) | yes |
 | single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | no | yes |
@@ -172,25 +172,28 @@ Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ---
 
-#### `bit_slice(bit_offset, bit_length, order: :lsb) -> String | nil`
+#### `bit_slice(bit_offset, bit_length) -> String | nil`
 
-The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset`.
+The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset` (counted from the first bit, LSB-first).
 
-`order: :lsb` (default) counts `bit_offset` from the first bit. `order: :msb` counts from the last bit, so the source range is selected by reverse indexing over the whole string. The extracted bits are returned as a new `String` in the standard LSB-first layout.
+The result length is `ceil(bit_length / 8)` bytes. If `bit_length` is not a multiple of 8, the unused high bits of the last byte are cleared to zero.
+
+Returns `nil` if `bit_offset` or `bit_length` is not an `Integer`, if either is negative, or if `bit_offset` is beyond the end of the string.
 
 ```ruby
 data = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
 
-data.bit_slice(0, 8)                #=> "\xFF"
-data.bit_slice(0, 8, order: :msb)   #=> "\xAA"
+data.bit_slice(0, 8)   #=> "\xFF"
+data.bit_slice(8, 8)   #=> "\xAA"
+data.bit_slice(4, 8)   #=> "\xAF"   # bits 4-11 packed LSB-first
 ```
 
 The result String uses the same flat numbering scheme as the source, so `bit_at` and all iteration methods work directly on it:
 
 ```ruby
 result = data.bit_slice(4, 8)
-result.bit_at(0)                    #=> same as data.bit_at(4)
-result.each_set_bit_offset(order: :lsb)    # yields set-bit positions within the extracted range
+result.bit_at(0)                #=> same as data.bit_at(4)
+result.each_set_bit_offset      # yields set-bit positions within the extracted range
 ```
 
 Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC serialization:
@@ -206,24 +209,23 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 
 ---
 
-#### `bit_splice(bit_index, bit_length, str, order: :lsb) -> self`
-#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, order: :lsb) -> self`
-#### `bit_splice(range, str, order: :lsb) -> self`
-#### `bit_splice(range, str, str_range, order: :lsb) -> self`
+#### `bit_splice(bit_index, bit_length, str) -> self`
+#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
+#### `bit_splice(range, str) -> self`
+#### `bit_splice(range, str, str_range) -> self`
 
-The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
+The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index` (counted from the first bit, LSB-first).
 
-`order: :lsb` (default) counts from the first bit. `order: :msb` counts from the last bit, so both source and destination ranges are interpreted by reverse indexing over the whole string.
- The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
+The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
 
-`bit_splice` does not resize `self` --- the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
+`bit_splice` does not resize `self` --- the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. If the destination range or source range falls outside the available bits, it raises `IndexError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
 
-Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg and 2-arg forms, `bit_length` bits are read from the beginning of `str`. In the 5-arg form, the exact source sub-range is given explicitly.
+Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 5-arg form and the 3-arg range form, the exact source sub-range is given explicitly.
 
 ```ruby
 buf = +"\x00\x00"
 
-# 3-arg integer form: write bits 0-7 of "\xFF" into bits 0-7 of buf
+# 3-arg form: write bits 0-7 of "\xFF" into bits 0-7 of buf
 buf.bit_splice(0, 8, "\xFF")      #=> buf is "\xFF\x00"
 
 # write 4 bits starting at a non-byte-aligned position
@@ -268,15 +270,13 @@ bitmap.bit_splice(40, 40, new_mask)
 
 ---
 
-#### `bit_run_count(pos, bit, order: :lsb) -> Integer`
+#### `bit_run_count(pos, bit) -> Integer`
 
-Returns the length of the consecutive run of `bit` starting at flat position `pos`. Returns 0 when `pos` is out of range or the bit at `pos` does not equal `bit`.
+Returns the length of the consecutive run of `bit` starting at flat position `pos`, counting forward toward higher bit indices. Returns 0 when `pos` is out of range or the bit at `pos` does not equal `bit`.
 
 `bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are aliases for `0`/`1`, matching the values yielded by `each_bit_run`).
 
-`order: :lsb` (default) counts forward toward higher bit indices. `order: :msb` counts backward toward lower bit indices --- mirrors `each_bit_run(order: :msb)`.
-
-Equivalent to Gauche Scheme's `bitvector-count-run`.
+Inspired by Gauche Scheme's `bitvector-count-run`.
 
 ```ruby
 data = "\xF0"   # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
@@ -284,9 +284,6 @@ data = "\xF0"   # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 data.bit_run_count(0, 0)  #=> 4  (4 zeros forward from bit 0)
 data.bit_run_count(4, 1)  #=> 4  (4 ones forward from bit 4)
 data.bit_run_count(0, 1)  #=> 0  (bit 0 is not 1)
-
-data.bit_run_count(3, 0, order: :msb)  #=> 4  (4 zeros backward from bit 3)
-data.bit_run_count(7, 1, order: :msb)  #=> 4  (4 ones backward from bit 7)
 
 data = "\xFF\xFF\x00"
 data.bit_run_count(0,  1) #=> 16 (16 ones forward from bit 0)

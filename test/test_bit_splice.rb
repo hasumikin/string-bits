@@ -236,63 +236,12 @@ class TestBitSplice < Minitest::Test
     assert_raises(FrozenError) { "x".freeze.bit_splice(0, 8, "y") }
   end
 
-  def test_order
-    # LSB order (default)
-    s = +"\x00\x00"
-    s.bit_splice(0, 8, "\xFF", order: :lsb)
-    assert_equal "\xFF\x00", s
-
-    # MSB order: 0 is the last bit (15 in LSB)
-    s = +"\x00\x00"
-    s.bit_splice(0, 8, "\xFF", order: :msb)
-    assert_equal "\x00\xFF", s
-
-    # 5-arg form with order: :msb
-    # Copy 4 bits from src (Logical 0..3 in MSB of src) to s (Logical 0..3 in MSB of s)
-    # src = "\xAA\x00" (0b10101010 0x00) -> Logical 0..3 in MSB are bits 15,14,13,12 which are 0.
-    # src = "\x00\xAA" (0x00 0b10101010) -> Logical 0..3 in MSB are bits 15,14,13,12 which are bits 7,6,5,4 of byte[1] = 1010.
-    s = +"\x00\x00"
-    src = "\x00\xAA"
-    s.bit_splice(0, 4, src, 0, 4, order: :msb)
-    # Logical 0..3 in MSB of s -> Physical 15, 14, 13, 12 (bits 7,6,5,4 of s[1])
-    # Should become 1010 -> 0b10100000 = 0xA0
-    assert_equal "\x00\xA0", s
-  end
-
-  def test_order_range
-    s = +"\x00\x00"
-    # MSB 0..7 is physical 15..8 (byte[1])
-    s.bit_splice(0..7, "\xFF", order: :msb)
-    assert_equal "\x00\xFF", s
-  end
-
-  def test_order_range_source
-    s = +"\x00\x00"
-    src = "\x00\xFF"
-    # Copy MSB 0..7 of src (byte[1]=0xFF) to MSB 8..15 of s (byte[0])
-    s.bit_splice(8..15, src, 0..7, order: :msb)
-    assert_equal "\xFF\x00", s
-  end
-
-  def test_order_negative_index
-    s = +"\x00\x00"
-    # -1 in MSB order is logical 15 (last bit), which is physical 0 (byte[0] bit 0)
-    s.bit_splice(-1, 1, "\xFF", order: :msb)
-    assert_equal "\x01\x00", s
-
-    s = +"\x00\x00"
-    # -8 in MSB order is logical 8, which is physical 7 (byte[0] bit 7)
-    s.bit_splice(-8, 1, "\xFF", order: :msb)
-    assert_equal "\x80\x00", s
-  end
-
   # --- Integer source is intentionally unsupported in the current proposal ---
 
   def test_integer_source_raises_argument_error
     s = +"\x00\x00"
     assert_raises(ArgumentError) { s.bit_splice(0, 8, 0xAB) }
     assert_raises(ArgumentError) { s.bit_splice(4, 8, 0xAB) }
-    assert_raises(ArgumentError) { s.bit_splice(0, 8, 0xAB, order: :msb) }
   end
 
   def test_bignum_raises_argument_error
