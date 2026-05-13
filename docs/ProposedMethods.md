@@ -2,25 +2,29 @@
 
 ### String class
 
-| category | methods | zero-copy | `order:` keyword param |
-|----------|---------|-----------|----------|
-| read | `bit_at` | yes | yes |
-| read | `bit_count` | yes | no |
-| iterate bits | `each_bit`, `bits` | yes | yes |
-| iterate set-bit positions | `each_set_bit_offset`, `set_bit_offsets` | yes | yes |
-| extract | `bit_slice` | no | yes |
-| multi-bit mutation | `bit_splice` | yes | yes |
-| run-length iteration | `each_bit_run`, `bit_runs`, `bit_run_count` | yes | yes |
-| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | yes | yes |
-| bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | yes | no |
-| bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | no | no |
+| category | methods | allocates result object | `order:` keyword param |
+|----------|---------|-------------------------|----------|
+| read | `bit_at` | no | yes |
+| read | `bit_count` | no | no |
+| iterate bits | `each_bit` | no | yes |
+| iterate bits | `bits` | yes (`Array`) | yes |
+| iterate set-bit positions | `each_set_bit_offset` | no | yes |
+| iterate set-bit positions | `set_bit_offsets` | yes (`Array`) | yes |
+| extract | `bit_slice` | yes (`String`) | yes |
+| multi-bit mutation | `bit_splice` | no | yes |
+| run-length iteration | `bit_run_count` | no | yes |
+| run-length iteration | `each_bit_run` | no | yes |
+| run-length iteration | `bit_runs` | yes (`Array`) | yes |
+| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | no | yes |
+| bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | no | no |
+| bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | yes (`String`) | no |
 
 ### Array class
 
-| category | methods | zero-copy | `order:` keyword param |
-|----------|---------|-----------|----------|
-| Array validity mask (in-place) | `Array#mask!` | yes | yes |
-| Array validity mask | `Array#mask` |  no | yes |
+| category | methods | allocates result object | `order:` keyword param |
+|----------|---------|-------------------------|----------|
+| Array validity mask (in-place) | `Array#mask!` | no | yes |
+| Array validity mask | `Array#mask` | yes (`Array`) | yes |
 
 ### Read-only
 
@@ -30,7 +34,7 @@
 
 Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range.
 
-`order: :lsb` (default) counts from the first bit of the first byte. `order: :msb` counts from the last bit of the last byte (mirroring `each_bit(order: :msb)`).
+`order: :lsb` (default) counts from the first bit of the first byte. `order: :msb` counts from the last bit of the last byte (mirroring `each_bit(order: :msb)`), so it reverses indexing over the entire bit sequence rather than preserving byte order.
 
 ```ruby
 bitmap = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
@@ -50,7 +54,7 @@ valid = bitmap.bit_at(i)
 
 #### `bit_count -> Integer`
 
-Returns the total number of set bits across the entire string. O(bytesize) --- no per-bit branching. The C implementation will use `__builtin_popcount` (GCC/Clang) to map directly to the hardware `POPCNT` instruction where available.
+Returns the total number of set bits across the entire string.
 
 ```ruby
 "\x00".bit_count     #=> 0
@@ -123,7 +127,7 @@ Follows the same pattern as `String#bytes` vs `String#each_byte`.
 #### `each_set_bit_offset(order: :lsb) { |n| ... } -> self`
 #### `each_set_bit_offset(order: :lsb) -> Enumerator`
 
-Yields the flat position of each **set bit** (bit value == 1). Without a block, returns an `Enumerator`. With a block, returns `self`. The C implementation can use `__builtin_ctz` (count trailing zeros) to jump directly to the next set bit within each byte without scanning every bit.
+Yields the flat position of each **set bit** (bit value == 1). Without a block, returns an `Enumerator`. With a block, returns `self`.
 
 ```
 data = "\xAA\xCC"  (byte[0]=0b10101010, byte[1]=0b11001100)
@@ -172,7 +176,7 @@ Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset`.
 
-`order: :lsb` (default) counts `bit_offset` from the first bit. `order: :msb` counts from the last bit. The extracted bits are returned as a new `String` in the standard LSB-first layout.
+`order: :lsb` (default) counts `bit_offset` from the first bit. `order: :msb` counts from the last bit, so the source range is selected by reverse indexing over the whole string. The extracted bits are returned as a new `String` in the standard LSB-first layout.
 
 ```ruby
 data = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
@@ -207,9 +211,9 @@ ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
 #### `bit_splice(range, str, order: :lsb) -> self`
 #### `bit_splice(range, str, str_range, order: :lsb) -> self`
 
-The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` (or the lower `bit_length` bits of an `Integer`) into `self` starting at flat bit position `bit_index`.
+The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
 
-`order: :lsb` (default) counts from the first bit. `order: :msb` counts from the last bit.
+`order: :lsb` (default) counts from the first bit. `order: :msb` counts from the last bit, so both source and destination ranges are interpreted by reverse indexing over the whole string.
  The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
 
 `bit_splice` does not resize `self` --- the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
@@ -324,9 +328,7 @@ Non-iterator complement of `each_bit_run`. Without a block, collects all `(bit, 
 #### `each_bit_run(order: :lsb) { |bit, len| } -> self`
 #### `each_bit_run(order: :lsb) -> Enumerator`
 
-Yields `(bit, run_length)` pairs for each consecutive run of identical bits. Run-length boundary detection and counting happen entirely in C --- no Ruby-level `current`/`count` state machine is needed.
-
-The key insight from Gauche's `bitvector-count-run`: instead of visiting every bit, use `__builtin_ctzll` to skip up to 64 identical bits in a single instruction per 8-byte word, making the inner loop O(run\_length / 64) rather than O(run\_length).
+Yields `(bit, run_length)` pairs for each consecutive run of identical bits.
 
 ```ruby
 "\xFF\x00".each_bit_run.to_a
@@ -342,7 +344,7 @@ The key insight from Gauche's `bitvector-count-run`: instead of visiting every b
 RLE encoding --- the primary motivation:
 
 ```ruby
-# with each_bit (Ruby-level state machine, one yield per bit)
+# with each_bit
 runs = []; current = nil; count = 0
 data.each_bit(order: :lsb) do |b|
   if b == current then count += 1
@@ -351,7 +353,7 @@ data.each_bit(order: :lsb) do |b|
 end
 runs << [current, count] unless current.nil?
 
-# with each_bit_run (boundary detection in C, one yield per run)
+# with each_bit_run
 runs = data.each_bit_run(order: :lsb).to_a
 ```
 
@@ -505,7 +507,7 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 
 `Array#mask` applies a bitmap to an array, returning a new array of the same length where each element is either kept or replaced with `nil` according to the corresponding bit. `Array#mask!` performs the same operation in place.
 
-No Ruby block or `rb_yield` is involved --- the operation is performed entirely in C, making it significantly faster than a Ruby-level `map` loop.
+No block is involved; the operation applies the bitmap directly to the array.
 
 #### `mask(bitmap, order: :lsb, invert: false) -> Array`
 

@@ -1,7 +1,5 @@
 ## Benchmark
 
-Some benchmarks show that the current Ruby with YJIT enabled is faster. Nevertheless, I still believe that the advantage of being able to write code more concisely using the string_bits methods outweighs any drawbacks.
-
 Environment:
 
 ```bash

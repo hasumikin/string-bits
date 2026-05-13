@@ -99,8 +99,8 @@ class TestArrayMask < Minitest::Test
     assert_raises(ArgumentError) { DATA.mask(-1) }
   end
 
-  def test_mask_integer_bignum
-    # Bignum: all 16 bits set -> all elements valid
+  def test_mask_large_integer_bitmap
+    # Larger integer bitmap: all 16 bits set -> all elements valid
     data = (1..16).to_a
     assert_equal data, data.mask((1 << 16) - 1)
   end

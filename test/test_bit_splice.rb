@@ -286,78 +286,13 @@ class TestBitSplice < Minitest::Test
     assert_equal "\x80\x00", s
   end
 
-  # --- Integer source form: bit_splice(bit_index, bit_length, integer) ---
+  # --- Integer source is intentionally unsupported in the current proposal ---
 
-  def test_integer_source_basic
+  def test_integer_source_raises_argument_error
     s = +"\x00\x00"
-    s.bit_splice(0, 8, 0xAB)
-    assert_equal "\xAB\x00", s
-  end
-
-  def test_integer_source_unaligned
-    s = +"\x00\x00"
-    s.bit_splice(4, 8, 0xAB)
-    assert_equal "\xB0\x0A", s
-  end
-
-  def test_integer_source_truncates_upper_bits
-    s = +"\x00"
-    s.bit_splice(0, 4, 0xFF)   # 0xFF truncated to 4 bits = 0x0F
-    assert_equal 0x0F, s.getbyte(0) & 0x0F
-  end
-
-  def test_integer_source_negative_fixnum
-    s = +"\x00"
-    s.bit_splice(0, 5, -1)     # lower 5 bits of -1 (two's complement) = 0b11111 = 31
-    assert_equal 31, s.getbyte(0) & 0x1F
-  end
-
-  def test_integer_source_returns_self
-    s = +"\x00"
-    assert_same s, s.bit_splice(0, 4, 7)
-  end
-
-  def test_integer_source_rgb565_fields
-    # Write blue=21, green=42, red=10 into an RGB565 pixel
-    s = +"\x00\x00"
-    s.bit_splice(0,  5, 21)
-    s.bit_splice(5,  6, 42)
-    s.bit_splice(11, 5, 10)
-    pixel = s.unpack1("S<")
-    assert_equal 21, pixel & 0x1F
-    assert_equal 42, (pixel >> 5) & 0x3F
-    assert_equal 10, (pixel >> 11) & 0x1F
-  end
-
-  def test_integer_source_roundtrip_with_each_bit_field
-    # each_bit_field yields integers; bit_splice writes them back
-    pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
-    pixel.each_bit_field(5, 6, 5).with_index do |(b, _g, r), iter|
-      off = iter * 16
-      pixel.bit_splice(off,      5, r)
-      pixel.bit_splice(off + 11, 5, b)
-    end
-    p = pixel.unpack1("S<")
-    assert_equal 10, p & 0x1F           # blue = original red
-    assert_equal 42, (p >> 5) & 0x3F   # green unchanged
-    assert_equal 21, (p >> 11) & 0x1F  # red = original blue
-  end
-
-  def test_integer_source_out_of_bounds
-    s = +"\x00"
-    assert_raises(IndexError) { s.bit_splice(4, 8, 0xFF) }
-  end
-
-  def test_integer_source_bitlen_over_64
-    s = +("\x00" * 9)
-    assert_raises(ArgumentError) { s.bit_splice(0, 65, 0) }
-  end
-
-  def test_integer_source_msb_order
-    s = +"\x00\x00"
-    # MSB order: bit_index 0 with length 8 maps to physical bits 8..15 (byte[1])
-    s.bit_splice(0, 8, 0xAB, order: :msb)
-    assert_equal "\x00\xAB", s
+    assert_raises(ArgumentError) { s.bit_splice(0, 8, 0xAB) }
+    assert_raises(ArgumentError) { s.bit_splice(4, 8, 0xAB) }
+    assert_raises(ArgumentError) { s.bit_splice(0, 8, 0xAB, order: :msb) }
   end
 
   def test_bignum_raises_argument_error

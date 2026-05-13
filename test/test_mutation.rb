@@ -131,7 +131,7 @@ class TestSetClearFlipBit < Minitest::Test
   end
 
   def test_set_bit_bignum_raises_argument_error
-    # Bignums cannot be represented as a C long (system range exceeded) -> ArgumentError.
+    # Integers outside the supported index range raise ArgumentError.
     assert_raises(ArgumentError) { (+"\xFF").set_bit(2**62) }
     assert_raises(ArgumentError) { (+"\xFF").set_bit(2**63) }
     assert_raises(ArgumentError) { (+"\xFF").set_bit(2**100) }

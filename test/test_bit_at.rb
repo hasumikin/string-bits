@@ -68,7 +68,7 @@ class TestBitAt < Minitest::Test
   end
 
   def test_bignum_raises_argument_error
-    # Bignums cannot be represented as a C long (system range exceeded) -> ArgumentError.
+    # Integers outside the supported index range raise ArgumentError.
     assert_raises(ArgumentError) { "\xFF".bit_at(2**62) }
     assert_raises(ArgumentError) { "\xFF".bit_at(2**63) }
     assert_raises(ArgumentError) { "\xFF".bit_at(2**100) }

@@ -19,16 +19,16 @@ Within each byte, the **LSB is the lower-numbered position**. Bytes are numbered
 
 Two distinct categories of "out of range" are handled differently.
 
-**String range exceeded (Fixnum beyond the string's bit length)** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors Ruby's own `String#[]` (returns `nil` for out-of-bounds reads) and `String#setbyte` (raises `IndexError` for out-of-bounds writes).
+**Index outside the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors Ruby's own `String#[]` (returns `nil` for out-of-bounds reads) and `String#setbyte` (raises `IndexError` for out-of-bounds writes).
 
-**System-unrepresentable index (Bignum)** --- all methods raise `ArgumentError`. A `Bignum` cannot be converted to a C `long` in a portable way: on LLP64 platforms (Windows), `sizeof(long) == 4`, so any `Bignum > INT32_MAX` would overflow, while on LP64 (Linux/macOS) the limit is `INT64_MAX`. Rather than letting this platform dependency surface as an inconsistent `RangeError`, the implementation detects Bignums explicitly and raises `ArgumentError` uniformly. In practice, no real string can hold enough bytes to make a Bignum a valid index, so the restriction carries no practical cost.
+**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API.
 
 ```ruby
 s = "\xFF"
-s.bit_at(100)       #=> nil         (Fixnum, out of string range)
-s.bit_at(2**100)    #=> ArgumentError (Bignum, system-unrepresentable)
-s.set_bit(100)      #=> IndexError   (Fixnum, out of string range)
-s.set_bit(2**100)   #=> ArgumentError (Bignum, system-unrepresentable)
+s.bit_at(100)       #=> nil
+s.bit_at(2**100)    #=> ArgumentError
+s.set_bit(100)      #=> IndexError
+s.set_bit(2**100)   #=> ArgumentError
 ```
 
 ### The `order:` parameter (LSB or MSB)
@@ -40,11 +40,11 @@ The `order:` keyword controls **interpretation and traversal direction**. It def
 | `:lsb` (default) | low -> high | 0, 1, 2, ... , total-1 |
 | `:msb`   | high -> low | total-1, ..., 2, 1, 0 |
 
-For iterative methods (`each_bit`, `each_set_bit_offset`), it controls the yield order. For index-based methods (`bit_at`, `bit_slice`, `bit_splice`, `set_bit`, etc.), it defines the mapping of logical index `n` to physical bit position.
+For iterative methods (`each_bit`, `each_set_bit_offset`), it controls yield order. For index-based methods (`bit_at`, `bit_slice`, `bit_splice`, `set_bit`, etc.), it defines the mapping of logical index `n` to physical bit position.
 
-The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). This ensures `values.mask(bitmap)` and `bitmap.each_set_bit_offset { |i| values[i] }` work correctly without extra arguments. Additionally, `:lsb` yields positions in ascending order, making `set_bit_offsets` results immediately usable as array subscripts.
+Important: `order: :msb` does **not** mean "keep byte order and only flip the bit numbering inside each byte". It means reverse indexing over the entire bit sequence: logical position 0 is the last physical bit of the string, logical position 1 is the second-last physical bit, and so on.
 
-The trade-off is that visual binary display (where the MSB is leftmost) requires `order: :msb` explicitly. The `:lsb` default is consistent with hardware-level bit numbering (bit 0 = LSB on x86/ARM), ensures `bit_at(i)` aligns with array index `i`, and yields positions in ascending order --- making `setbit_positions` results directly usable as array subscripts. Apache Arrow validity bitmaps follow the same convention (element `i` = byte `i/8` bit `i%8`).
+The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). It keeps `bit_at(i)`, `values.mask(bitmap)`, and `bitmap.each_set_bit_offset { |i| values[i] }` aligned without extra conversion. `order: :msb` is useful when reverse traversal of the whole bit sequence is desired, but it is not a "network bit order" mode.
 
 The symbol values `:lsb` and `:msb` leave room for future extensions (e.g. `:native`, `:network`) without breaking changes. As a consequence, `each_bit(order: :msb).to_a` is always the reverse of `each_bit.to_a`, and the same holds for `each_set_bit_offset`.
 
@@ -52,7 +52,7 @@ The symbol values `:lsb` and `:msb` leave room for future extensions (e.g. `:nat
 
 The method names follow the same pattern as Ruby's built-in `String#bytes` and `String#each_byte`.
 
-`bytes` and `each_byte` are not independent operations --- `bytes` **delegates** to `each_byte`. When called without a block, `bytes` returns `each_byte.to_a`. When called with a block, `bytes` forwards it to `each_byte` and returns `self`. The bit methods follow the same convention:
+`bytes` and `each_byte` are not independent operations: `bytes` returns `each_byte.to_a` without a block, and forwards the block to `each_byte` with a block. The bit methods follow the same convention:
 
 ```ruby
 # each_bit: Enumerator or self
@@ -72,7 +72,7 @@ s.set_bit_offsets                   #=> Array of set-bit positions (same as each
 s.set_bit_offsets { |n| ... }       #=> self (s), same as each_set_bit_offset { |n| ... }
 ```
 
-The word "set" is ambiguous in English (verb: mutate; adjective: already-set bits). `each_set_bit_offset` resolves this --- the `each_` prefix always signals iteration, never mutation. `set_bit_offsets` names the return type explicitly, distinguishing it from `bits`.
+The word "set" is ambiguous in English (verb: mutate; adjective: already-set bits). `each_set_bit_offset` makes the iterative meaning explicit, while `set_bit_offsets` names the returned positions.
 
 | analogy | byte methods | bit methods |
 |---------|-------------|-------------|
@@ -81,15 +81,13 @@ The word "set" is ambiguous in English (verb: mutate; adjective: already-set bit
 | iterate set-bit *positions* | --- | `each_set_bit_offset` |
 | Array or block shorthand for set-bit positions | --- | `set_bit_offsets` |
 
-The mutation methods `set_bit(n)`, `clear_bit(n)`, and `flip_bit(n)` use unambiguous verb phrases and are not affected by this convention.
-
 ### Why extend `String` rather than introduce a new class?
 
 The obvious alternative is a dedicated `BitSet` class (analogous to Java's `java.util.BitSet` or C++'s `std::bitset`). Two arguments favour extending `String` instead.
 
-**Adding a new top-level constant is a high bar for Ruby core.** Ruby's top-level namespace is long-established and shared by every program. Introducing `BitSet` there is a permanent, backwards-incompatible name reservation: any existing codebase that already defines a `BitSet` constant would break silently. The Ruby core team historically applies careful scrutiny to proposals that claim a new top-level name --- a shared reservation that affects every program --- and consistently asks whether the same functionality could fit an existing class instead. Routing the methods through `String` avoids this hurdle entirely.
+**Adding a new top-level constant is a high bar for Ruby core.** Introducing `BitSet` would permanently reserve a widely plausible name and force conversion at boundaries where Ruby code already uses `String`.
 
-**`String` is already Ruby's binary buffer type.** Unlike Java (`String` is immutable text), C++ (`std::string` is a text container with a narrow character model), or Python (`bytes` is immutable), Ruby's `String` carries an encoding tag and can be switched to `Encoding::BINARY` (`str.b`), making it the standard container for raw byte sequences. Socket reads, file reads, `pack`/`unpack` output, `IO::Buffer` materializations, and MessagePack payloads all land in `String`. The class already exposes a byte-level API --- `bytesize`, `getbyte`, `setbyte`, `byteslice`, `bytesplice` --- so adding bit-level methods is not a category change but a depth extension of the binary-buffer role `String` already plays. A standalone `BitSet` would require conversion at every boundary between the new type and the `String` that real code already holds, introducing copies and API friction where none need exist.
+**`String` is already Ruby's binary buffer type.** Socket reads, file reads, `pack`/`unpack`, and similar APIs already hand raw bytes to Ruby as `String`. Since `String` already exposes byte-level operations such as `bytesize`, `getbyte`, `setbyte`, `byteslice`, and `bytesplice`, bit-level methods are a depth extension of an existing role rather than a new category.
 
 ### Bit ordering across domains
 
@@ -101,21 +99,12 @@ The obvious alternative is a dedicated `BitSet` class (analogous to Java's `java
 | IEEE 802.15.4 / Zigbee | LSB-first | native |
 | PostgreSQL visibility map, ext4 block bitmap | LSB-first | native |
 | Roaring Bitmap (analytics databases) | LSB-first | native |
-| RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | position offset conversion needed: `7 - (n % 8) + (n / 8) * 8` |
-| BitTorrent bitfield message | piece 0 = MSB of byte 0 | same offset conversion as RFC |
-| PNG 1/2/4-bit scanlines | MSB = leftmost pixel | same offset conversion as RFC |
-| Huffman / LZ compressed bit streams | MSB written first into each byte | same offset conversion as RFC |
+| RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | not native; explicit offset conversion needed |
+| BitTorrent bitfield message | piece 0 = MSB of byte 0 | not native; explicit offset conversion needed |
+| PNG 1/2/4-bit scanlines | MSB = leftmost pixel | not native; explicit offset conversion needed |
+| Huffman / LZ compressed bit streams | MSB written first into each byte | not native; explicit offset conversion needed |
 
-Domains using LSB-first numbering represent the majority of high-performance in-process
-workloads (columnar analytics, embedded hardware, filesystem bitmaps). Domains using
-MSB-first numbering (RFC headers, BitTorrent, PNG sub-byte images) are real but tend to
-appear in Ruby code that already uses `unpack` with format strings and integer bit shifts,
-where a flat-bitmap API is less directly useful.
-
-For the MSB-first domains, the relationship between their document-level bit index d and the
-flat position n used by this API is `n = 7 - (d % 8) + (d / 8) * 8`. This is mechanical but
-not obvious; if any of these domains become primary use cases, the naming and default
-choices should be revisited.
+Domains using LSB-first numbering align directly with this API. Domains using MSB-first numbering inside each byte are still addressable, but require explicit offset conversion because `order: :msb` reverses the whole bit sequence rather than preserving byte order.
 
 ### Apache Arrow Compatibility
 
@@ -138,11 +127,9 @@ Arrow validity bitmap for 10 elements (byte[0] = 0b11111111, byte[1] = 0b0000001
   validity:  ok   ok   ok   ok   ok   ok   ok   ok   ok   ok
 ```
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(order: :lsb)` yields valid element indices in ascending order. `Array#bitwise(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values --- entirely in C with no per-element callback overhead.
+`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(order: :lsb)` yields valid element indices in ascending order. `Array#mask(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values.
 
 #### Arrow IPC serialization
-
-Arrow IPC (Inter-Process Communication) is the binary wire format used to transfer Arrow data between processes, language runtimes, and storage systems such as Parquet and Feather.
 
 Arrow supports zero-copy slicing in memory: slicing an array produces a lightweight object that references the original buffer with a non-zero `offset`. For a validity bitmap, this offset is measured in **bits** --- the bitmap for a sliced column may start at an arbitrary bit position within a byte.
 
@@ -153,8 +140,6 @@ The IPC format, however, requires every buffer to be byte-aligned: element 0 of 
 # IPC requires the bitmap to start at bit 0
 ipc_validity = validity_bitmap.bit_slice(5, 100)
 ```
-
-This is the operation that bridges the non-byte-aligned in-memory representation that Arrow uses for zero-copy slicing to the byte-aligned form required by the IPC format.
 
 #### Why no byte-offset parameter?
 
@@ -173,13 +158,13 @@ One might expect each method to accept a `byte_offset:` keyword so that a bitmap
 | `bit_count`, `each_bit`, `each_set_bit_offset` | extract once with `byteslice(offset, length)`, then call the method |
 | `bit_and!`, `bit_or!`, `bit_xor!` on a sub-range | use `IO::Buffer` (see below) |
 
-For single-bit access the byte offset is already expressible through `n`. For bulk read-only operations, `byteslice` produces a one-time copy whose cost is negligible compared with the operation itself (a bitmap for one million rows is only 123 KB).
+For single-bit access the byte offset is already expressible through `n`. For bulk read-only operations, a caller can extract the relevant byte range once with `byteslice(offset, length)` and then operate on that smaller string.
 
 **In-place bulk operations on a sub-range are the one case that cannot be handled by adjusting `n` or calling `byteslice`**, because `byteslice` returns a copy and writing back is not possible. This is intentional: that use case belongs to `IO::Buffer`.
 
 #### IO::Buffer as the zero-copy complement
 
-CRuby's `IO::Buffer` is designed for exactly this scenario. `IO::Buffer#slice` returns a *view* into the original buffer --- a new `IO::Buffer` object that shares the underlying memory without any copy. Operations on the slice write directly into the parent buffer:
+`IO::Buffer` is the zero-copy complement for this scenario. `IO::Buffer#slice` returns a view into the original buffer that shares the underlying memory:
 
 ```ruby
 buf    = IO::Buffer.map(File.open("data.arrow"))
@@ -188,9 +173,7 @@ bitmap = buf.slice(validity_offset, bitmap_bytes)  # no copy
 # operating on IO::Buffer would apply here.
 ```
 
-The String methods proposed here cover the common case where a column buffer has already been materialized as a `String` (e.g. read from a socket, deserialized from MessagePack, or extracted via `byteslice`).
-
-`IO::Buffer` is designed for memory management: zero-copy views, I/O, and low-level typed access. The methods proposed here are designed for semantic access to already-materialized byte sequences: bit-level iteration, mutation, and bulk operations. These concerns are complementary:
+The proposed `String` methods cover the common case where a column buffer has already been materialized as a `String` (for example via socket reads, MessagePack, or `byteslice`). `IO::Buffer` and `String` are complementary here:
 
 * `IO::Buffer`: memory ownership, zero-copy slicing, I/O operations
 * `String` (proposed): bit-level iteration and manipulation of materialized byte data
