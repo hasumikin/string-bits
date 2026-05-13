@@ -1,0 +1,14 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  A = Random.bytes(1_000_000)
+  B = Random.bytes(1_000_000)
+
+benchmark:
+  baseline: |
+    result = A.dup
+    A.bytesize.times { |i| result.setbyte(i, A.getbyte(i) | B.getbyte(i)) }
+    result
+  string_bits: |
+    A.bit_or(B)

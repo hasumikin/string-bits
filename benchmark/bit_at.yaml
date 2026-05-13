@@ -1,0 +1,14 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  DATA      = Random.bytes(100_000)
+  POSITIONS = Array.new(1_000_000) { rand(DATA.bytesize * 8) }
+
+benchmark:
+  baseline: |
+    POSITIONS.each do |pos|
+      (DATA.getbyte(pos >> 3) >> (pos & 7)) & 1 == 1
+    end
+  string_bits: |
+    POSITIONS.each { |pos| DATA.bit_at(pos) }

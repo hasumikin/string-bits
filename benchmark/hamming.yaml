@@ -14,4 +14,5 @@ benchmark:
       FP_LEN.times { |i| dist += BIT_COUNT_TABLE[fp.getbyte(i) ^ QUERY.getbyte(i)] }
       dist
     }
-  string_bits: FINGERPRINTS.min_by { |fp| QUERY.bit_xor(fp).bit_count }
+  string_bits: |
+    FINGERPRINTS.min_by { |fp| QUERY.bit_xor(fp).bit_count }
