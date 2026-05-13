@@ -281,17 +281,22 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
 
     int msb_first = parse_order(argc, argv);
     long len = RSTRING_LEN(self);
-    const char *str = RSTRING_PTR(self);
-    long total_bits = len * 8;
+    const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
     if (msb_first) {
-        for (long i = total_bits - 1; i >= 0; i--) {
-            rb_yield(rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse);
+        for (long i = len - 1; i >= 0; i--) {
+            unsigned char b = str[i];
+            for (int j = 7; j >= 0; j--) {
+                rb_yield((b >> j) & 1 ? Qtrue : Qfalse);
+            }
         }
     }
     else {
-        for (long i = 0; i < total_bits; i++) {
-            rb_yield(rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse);
+        for (long i = 0; i < len; i++) {
+            unsigned char b = str[i];
+            for (int j = 0; j < 8; j++) {
+                rb_yield((b >> j) & 1 ? Qtrue : Qfalse);
+            }
         }
     }
 
@@ -303,22 +308,28 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
 {
     int msb_first = parse_order(argc, argv);
     long len = RSTRING_LEN(self);
-    const char *str = RSTRING_PTR(self);
+    const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     long total_bits = len * 8;
     int have_block = rb_block_given_p();
 
     VALUE ary = have_block ? Qnil : rb_ary_new_capa(total_bits);
 
     if (msb_first) {
-        for (long i = total_bits - 1; i >= 0; i--) {
-            VALUE bit = rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse;
-            have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
+        for (long i = len - 1; i >= 0; i--) {
+            unsigned char b = str[i];
+            for (int j = 7; j >= 0; j--) {
+                VALUE bit = (b >> j) & 1 ? Qtrue : Qfalse;
+                have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
+            }
         }
     }
     else {
-        for (long i = 0; i < total_bits; i++) {
-            VALUE bit = rb_str_get_bit(str, i, 0) ? Qtrue : Qfalse;
-            have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
+        for (long i = 0; i < len; i++) {
+            unsigned char b = str[i];
+            for (int j = 0; j < 8; j++) {
+                VALUE bit = (b >> j) & 1 ? Qtrue : Qfalse;
+                have_block ? rb_yield(bit) : rb_ary_push(ary, bit);
+            }
         }
     }
 
@@ -1520,17 +1531,27 @@ rb_ary_mask(int argc, VALUE *argv, VALUE self)
         }
     }
     else {
-        const char *bmp = RSTRING_PTR(bitmap);
+        const unsigned char *bmp = (const unsigned char *)RSTRING_PTR(bitmap);
         long bmp_len    = RSTRING_LEN(bitmap);
         long needed     = (ary_len + 7) >> 3;
         if (needed > bmp_len)
             rb_raise(rb_eArgError,
                      "bitmap too short: need %ld bytes for %ld elements, got %ld",
                      needed, ary_len, bmp_len);
-        for (long i = 0; i < ary_len; i++) {
-            int bit = rb_str_get_bit(bmp, i, msb_first);
-            if (invert) bit = !bit;
-            rb_ary_push(result, bit ? src[i] : Qnil);
+
+        if (msb_first) {
+            for (long i = 0; i < ary_len; i++) {
+                int bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
+                if (invert) bit = !bit;
+                rb_ary_push(result, bit ? src[i] : Qnil);
+            }
+        }
+        else {
+            for (long i = 0; i < ary_len; i++) {
+                int bit = (bmp[i >> 3] >> (i & 7)) & 1;
+                if (invert) bit = !bit;
+                rb_ary_push(result, bit ? src[i] : Qnil);
+            }
         }
     }
 
@@ -1555,17 +1576,27 @@ rb_ary_mask_bang(int argc, VALUE *argv, VALUE self)
         }
     }
     else {
-        const char *bmp = RSTRING_PTR(bitmap);
+        const unsigned char *bmp = (const unsigned char *)RSTRING_PTR(bitmap);
         long bmp_len    = RSTRING_LEN(bitmap);
         long needed     = (ary_len + 7) >> 3;
         if (needed > bmp_len)
             rb_raise(rb_eArgError,
                      "bitmap too short: need %ld bytes for %ld elements, got %ld",
                      needed, ary_len, bmp_len);
-        for (long i = 0; i < ary_len; i++) {
-            int bit = rb_str_get_bit(bmp, i, msb_first);
-            if (invert) bit = !bit;
-            if (!bit) rb_ary_store(self, i, Qnil);
+
+        if (msb_first) {
+            for (long i = 0; i < ary_len; i++) {
+                int bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
+                if (invert) bit = !bit;
+                if (!bit) rb_ary_store(self, i, Qnil);
+            }
+        }
+        else {
+            for (long i = 0; i < ary_len; i++) {
+                int bit = (bmp[i >> 3] >> (i & 7)) & 1;
+                if (invert) bit = !bit;
+                if (!bit) rb_ary_store(self, i, Qnil);
+            }
         }
     }
 
