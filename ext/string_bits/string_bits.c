@@ -1039,6 +1039,35 @@ count_run_msb(const unsigned char *src, long pos, int target)
             return count < max_run ? count : max_run;
     }
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    /* full 8-byte words, scanning backward */
+    while (byte_idx >= 7) {
+        uint64_t word;
+        memcpy(&word, src + byte_idx - 7, 8);
+        if (!target) word = ~word;
+        if (word == UINT64_MAX) {
+            count += 64;
+            byte_idx -= 8;
+        } else {
+            /* highest bit is at the end of the 8-byte block */
+#if __has_builtin(__builtin_clzll)
+            count += __builtin_clzll(~word);
+#elif defined(_MSC_VER)
+            unsigned long index;
+            _BitScanReverse64(&index, ~word);
+            count += 63 - (int)index;
+#else
+            /* fallback to byte-by-byte if no clzll */
+            goto byte_by_byte;
+#endif
+            return count < max_run ? count : max_run;
+        }
+    }
+#endif
+
+#if !defined(__BYTE_ORDER__) || __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+byte_by_byte:
+#endif
     /* remaining full bytes, scanning from high to low */
     while (byte_idx >= 0) {
         unsigned int b = (unsigned int)src[byte_idx];
