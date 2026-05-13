@@ -135,8 +135,8 @@ class TestEachBitRun < Minitest::Test
 
   def test_returns_enumerator_without_block
     assert_instance_of Enumerator, "\xFF".each_bit_run
-    assert_instance_of Enumerator, "\xFF".each_bit_run(order: :lsb)
-    assert_instance_of Enumerator, "\xFF".each_bit_run(order: :msb)
+    assert_instance_of Enumerator, "\xFF".each_bit_run(scan_order: :lsb)
+    assert_instance_of Enumerator, "\xFF".each_bit_run(scan_order: :msb)
   end
 
   def test_returns_self_with_block
@@ -177,29 +177,29 @@ class TestEachBitRun < Minitest::Test
     assert_equal [[true, 24]], "\xFF\xFF\xFF".each_bit_run.to_a
   end
 
-  # --- order: :msb ---
+  # --- scan_order: :msb ---
 
   def test_msb_all_ones
-    assert_equal [[true, 8]], "\xFF".each_bit_run(order: :msb).to_a
+    assert_equal [[true, 8]], "\xFF".each_bit_run(scan_order: :msb).to_a
   end
 
   def test_msb_two_runs
     # 0xF0: bits 7-4 are 1, bits 3-0 are 0 -- MSB yields from bit 7 downward
-    assert_equal [[true, 4], [false, 4]], "\xF0".each_bit_run(order: :msb).to_a
+    assert_equal [[true, 4], [false, 4]], "\xF0".each_bit_run(scan_order: :msb).to_a
   end
 
   def test_msb_is_reverse_of_lsb_for_consistent_data
     # When all runs have distinct lengths, msb == lsb.reverse
     data = "\xFF\x00"  # two runs of 8
-    lsb = data.each_bit_run(order: :lsb).to_a
-    msb = data.each_bit_run(order: :msb).to_a
+    lsb = data.each_bit_run(scan_order: :lsb).to_a
+    msb = data.each_bit_run(scan_order: :msb).to_a
     assert_equal lsb.reverse, msb
   end
 
   # --- argument errors ---
 
-  def test_invalid_order
-    assert_raises(ArgumentError) { "\xFF".each_bit_run(order: :foo) {} }
+  def test_invalid_scan_order
+    assert_raises(ArgumentError) { "\xFF".each_bit_run(scan_order: :foo) {} }
   end
 
   # --- run lengths sum to total bits ---
@@ -215,15 +215,15 @@ class TestEachBitRun < Minitest::Test
   def test_roundtrip_lsb
     data = "\xAA\xCC\xFF\x00\xF0"
     reconstructed = []
-    data.each_bit_run(order: :lsb) { |bit, len| len.times { reconstructed << bit } }
-    assert_equal data.each_bit(order: :lsb).to_a, reconstructed
+    data.each_bit_run(scan_order: :lsb) { |bit, len| len.times { reconstructed << bit } }
+    assert_equal data.each_bit(scan_order: :lsb).to_a, reconstructed
   end
 
   def test_roundtrip_msb
     data = "\xAA\xCC\xFF\x00\xF0"
     reconstructed = []
-    data.each_bit_run(order: :msb) { |bit, len| len.times { reconstructed << bit } }
-    assert_equal data.each_bit(order: :msb).to_a, reconstructed
+    data.each_bit_run(scan_order: :msb) { |bit, len| len.times { reconstructed << bit } }
+    assert_equal data.each_bit(scan_order: :msb).to_a, reconstructed
   end
 
   # --- long runs (exercises 64-bit word path) ---
@@ -260,7 +260,7 @@ class TestEachBitRun < Minitest::Test
     # each_bit-based RLE (existing approach)
     expected = []
     current = nil; count = 0
-    data.each_bit(order: :lsb) do |b|
+    data.each_bit(scan_order: :lsb) do |b|
       if b == current then count += 1
       else expected << [current, count] unless current.nil?; current = b; count = 1
       end
@@ -268,7 +268,7 @@ class TestEachBitRun < Minitest::Test
     expected << [current, count] unless current.nil?
 
     # each_bit_run (new approach)
-    actual = data.each_bit_run(order: :lsb).to_a
+    actual = data.each_bit_run(scan_order: :lsb).to_a
 
     assert_equal expected, actual
   end

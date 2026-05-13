@@ -17,4 +17,4 @@ benchmark:
     end
     positions
   string_bits: |
-    DATA.set_bit_offsets(order: :lsb)
+    DATA.set_bit_offsets(count_from: :lsb)

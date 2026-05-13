@@ -2,46 +2,46 @@
 
 ### String class
 
-| category | methods | allocates result object | `order:` keyword param |
+| category | methods | allocates result object | keyword param |
 |----------|---------|-------------------------|----------|
-| read | `bit_at` | no | yes |
+| read | `bit_at` | no | `count_from:` |
 | read | `bit_count` | no | no |
-| iterate bits | `each_bit` | no | yes |
-| iterate bits | `bits` | yes (`Array`) | yes |
-| iterate set-bit positions | `each_set_bit_offset` | no | yes |
-| iterate set-bit positions | `set_bit_offsets` | yes (`Array`) | yes |
+| iterate bits | `each_bit` | no | `scan_order:` |
+| iterate bits | `bits` | yes (`Array`) | `scan_order:` |
+| iterate set-bit positions | `each_set_bit_offset` | no | `count_from:` |
+| iterate set-bit positions | `set_bit_offsets` | yes (`Array`) | `count_from:` |
 | extract | `bit_slice` | yes (`String`) | no |
 | multi-bit mutation | `bit_splice` | no | no |
 | run-length iteration | `bit_run_count` | no | no |
-| run-length iteration | `each_bit_run` | no | yes |
-| run-length iteration | `bit_runs` | yes (`Array`) | yes |
-| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | no | yes |
+| run-length iteration | `each_bit_run` | no | `scan_order:` |
+| run-length iteration | `bit_runs` | yes (`Array`) | `scan_order:` |
+| single-bit mutation | `set_bit`, `clear_bit`, `flip_bit` | no | `count_from:` |
 | bulk bitwise (in-place) | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | no | no |
 | bulk bitwise | `bit_not`, `bit_and`, `bit_or`, `bit_xor` | yes (`String`) | no |
 
 ### Array class
 
-| category | methods | allocates result object | `order:` keyword param |
+| category | methods | allocates result object | keyword param |
 |----------|---------|-------------------------|----------|
-| Array validity mask (in-place) | `Array#mask!` | no | yes |
-| Array validity mask | `Array#mask` | yes (`Array`) | yes |
+| Array validity mask (in-place) | `Array#mask!` | no | `count_from:` |
+| Array validity mask | `Array#mask` | yes (`Array`) | `count_from:` |
 
 ### Read-only
 
 ---
 
-#### `bit_at(n, order: :lsb) -> true | false | nil`
+#### `bit_at(n, count_from: :lsb) -> true | false | nil`
 
 Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range.
 
-`order: :lsb` (default) counts from the first bit of the first byte. `order: :msb` counts from the last bit of the last byte (mirroring `each_bit(order: :msb)`), so it reverses indexing over the entire bit sequence rather than preserving byte order.
+`count_from: :lsb` (default) counts from the first bit of the first byte. `count_from: :msb` counts from the last bit of the last byte, so it reverses numbering over the entire bit sequence rather than preserving byte order.
 
 ```ruby
 bitmap = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
 
 bitmap.bit_at(0)                #=> true  (bit 0 of byte[0])
-bitmap.bit_at(0, order: :msb)   #=> true  (bit 7 of byte[1])
-bitmap.bit_at(8, order: :msb)   #=> true  (bit 7 of byte[0])
+bitmap.bit_at(0, count_from: :msb)   #=> true  (bit 7 of byte[1])
+bitmap.bit_at(8, count_from: :msb)   #=> true  (bit 7 of byte[0])
 ```
 
 Apache Arrow idiom --- check if element `i` is valid:
@@ -72,19 +72,19 @@ null_count  = bitmap.bytesize * 8 - bitmap.bit_count
 
 ---
 
-#### `each_bit(order: :lsb) { |bool| ... } -> self`
-#### `each_bit(order: :lsb) -> Enumerator`
+#### `each_bit(scan_order: :lsb) { |bool| ... } -> self`
+#### `each_bit(scan_order: :lsb) -> Enumerator`
 
 Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. With a block, returns `self`.
 
 ```
-order: :lsb  -- position 0 first (byte[0] LSB first)
+scan_order: :lsb  -- physical position 0 first (byte[0] LSB first)
 
   byte[0]                   byte[1]
   b0 b1 b2 b3 b4 b5 b6 b7 | b0 b1 b2 b3 b4 b5 b6 b7
   ^--- first yielded              last yielded ---^
 
-order: :msb  -- position (total-1) first (last byte MSB first)
+scan_order: :msb  -- physical position (total-1) first (last byte MSB first)
 
   byte[n-1]                 byte[0]
   b7 b6 b5 b4 b3 b2 b1 b0 | b7 b6 b5 b4 b3 b2 b1 b0
@@ -96,17 +96,17 @@ order: :msb  -- position (total-1) first (last byte MSB first)
 #=> [false, true, false, true, false, true, false, true]
 #    pos 0   1     2      3     4      5     6      7
 
-"\xAA".each_bit(order: :msb).to_a
+"\xAA".each_bit(scan_order: :msb).to_a
 #=> [true, false, true, false, true, false, true, false]
 #    pos 7   6     5     4      3     2      1     0
 ```
 
 ---
 
-#### `bits(order: :lsb) -> Array`
-#### `bits(order: :lsb) { |bool| ... } -> self`
+#### `bits(scan_order: :lsb) -> Array`
+#### `bits(scan_order: :lsb) { |bool| ... } -> self`
 
-Without a block, returns an `Array` of `true`/`false` values --- equivalent to `each_bit(order: order).to_a`. With a block, forwards each bit to the block and returns `self` --- equivalent to `each_bit(order: order) { |b| ... }`.
+Without a block, returns an `Array` of `true`/`false` values --- equivalent to `each_bit(scan_order: scan_order).to_a`. With a block, forwards each bit to the block and returns `self` --- equivalent to `each_bit(scan_order: scan_order) { |b| ... }`.
 
 Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
@@ -114,7 +114,7 @@ Follows the same pattern as `String#bytes` vs `String#each_byte`.
 "\xAA".bits
 #=> [false, true, false, true, false, true, false, true]
 
-"\xAA".bits(order: :msb)
+"\xAA".bits(scan_order: :msb)
 #=> [true, false, true, false, true, false, true, false]
 
 "\xAA".bits { |b| print b ? "1" : "0" }
@@ -124,10 +124,10 @@ Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ---
 
-#### `each_set_bit_offset(order: :lsb) { |n| ... } -> self`
-#### `each_set_bit_offset(order: :lsb) -> Enumerator`
+#### `each_set_bit_offset(count_from: :lsb) { |n| ... } -> self`
+#### `each_set_bit_offset(count_from: :lsb) -> Enumerator`
 
-Yields the flat position of each **set bit** (bit value == 1). Without a block, returns an `Enumerator`. With a block, returns `self`.
+Yields the logical position of each **set bit** (bit value == 1). Without a block, returns an `Enumerator`. With a block, returns `self`.
 
 ```
 data = "\xAA\xCC"  (byte[0]=0b10101010, byte[1]=0b11001100)
@@ -137,30 +137,32 @@ Flat positions of all set bits:
   byte[0]: b1 b3 b5 b7  =>  positions  1,  3,  5,  7
   byte[1]: b2 b3 b6 b7  =>  positions 10, 11, 14, 15
 
-order: :lsb yields:  1,  3,  5,  7, 10, 11, 14, 15   (ascending)
-order: :msb yields: 15, 14, 11, 10,  7,  5,  3,  1   (descending)
+count_from: :lsb yields:  1,  3,  5,  7, 10, 11, 14, 15
+count_from: :msb yields:  0,  1,  4,  5,  8, 10, 12, 14
 ```
 
-Positions from `each_set_bit_offset` can be passed directly to `bit_at`:
+Positions from `each_set_bit_offset` can be passed directly to `bit_at` under the same numbering convention:
 
 ```ruby
-data.each_set_bit_offset do |n|
-  data.bit_at(n)  #=> always true
+data.each_set_bit_offset(count_from: :msb) do |n|
+  data.bit_at(n, count_from: :msb)  #=> always true
 end
 ```
 
+For `count_from: :msb`, logical positions are still yielded in ascending order. Internally, the iteration walks physical positions in reverse to preserve that property.
+
 ---
 
-#### `set_bit_offsets(order: :lsb) -> Array`
-#### `set_bit_offsets(order: :lsb) { |n| ... } -> self`
+#### `set_bit_offsets(count_from: :lsb) -> Array`
+#### `set_bit_offsets(count_from: :lsb) { |n| ... } -> self`
 
-Without a block, returns an `Array` of set-bit positions --- equivalent to `each_set_bit_offset(order: order).to_a`. With a block, forwards each position to the block and returns `self` --- equivalent to `each_set_bit_offset(order: order) { |n| ... }`.
+Without a block, returns an `Array` of set-bit positions --- equivalent to `each_set_bit_offset(count_from: count_from).to_a`. With a block, forwards each position to the block and returns `self` --- equivalent to `each_set_bit_offset(count_from: count_from) { |n| ... }`.
 
 Follows the same pattern as `String#bytes` vs `String#each_byte`.
 
 ```ruby
 "\xAA".set_bit_offsets           #=> [1, 3, 5, 7]
-"\xAA".set_bit_offsets(order: :msb)   #=> [7, 5, 3, 1]
+"\xAA".set_bit_offsets(count_from: :msb)   #=> [0, 2, 4, 6]
 
 "\xAA\xCC".set_bit_offsets
 #=> [1, 3, 5, 7, 10, 11, 14, 15]
@@ -218,7 +220,7 @@ The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from
 
 The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
 
-`bit_splice` does not resize `self` --- the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. If the destination range or source range falls outside the available bits, it raises `IndexError`. This mirrors the constraint `bytesplice` imposes on non-resizable strings, and is the only sensible choice at sub-byte granularity (partial bytes cannot be shifted to make room).
+Unlike `bytesplice`, `bit_splice` does not resize `self` --- the destination and source bit regions must have the same length. Attempting to splice a different number of bits raises `ArgumentError`. If the destination range or source range falls outside the available bits, it raises `IndexError`. This is the only sensible choice at sub-byte granularity: partial bytes cannot be shifted to make room.
 
 Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 5-arg form and the 3-arg range form, the exact source sub-range is given explicitly.
 
@@ -307,10 +309,10 @@ end
 
 ---
 
-#### `bit_runs(order: :lsb) -> Array`
-#### `bit_runs(order: :lsb) { |bit, len| } -> self`
+#### `bit_runs(scan_order: :lsb) -> Array`
+#### `bit_runs(scan_order: :lsb) { |bit, len| } -> self`
 
-Non-iterator complement of `each_bit_run`. Without a block, collects all `(bit, run_length)` pairs into an `Array` and returns it --- equivalent to `each_bit_run(order: order).to_a`. With a block, yields each pair and returns `self`.
+Non-iterator complement of `each_bit_run`. Without a block, collects all `(bit, run_length)` pairs into an `Array` and returns it --- equivalent to `each_bit_run(scan_order: scan_order).to_a`. With a block, yields each pair and returns `self`.
 
 ```ruby
 "\xFF\x00".bit_runs
@@ -322,8 +324,8 @@ Non-iterator complement of `each_bit_run`. Without a block, collects all `(bit, 
 
 ---
 
-#### `each_bit_run(order: :lsb) { |bit, len| } -> self`
-#### `each_bit_run(order: :lsb) -> Enumerator`
+#### `each_bit_run(scan_order: :lsb) { |bit, len| } -> self`
+#### `each_bit_run(scan_order: :lsb) -> Enumerator`
 
 Yields `(bit, run_length)` pairs for each consecutive run of identical bits.
 
@@ -343,7 +345,7 @@ RLE encoding --- the primary motivation:
 ```ruby
 # with each_bit
 runs = []; current = nil; count = 0
-data.each_bit(order: :lsb) do |b|
+data.each_bit(scan_order: :lsb) do |b|
   if b == current then count += 1
   else runs << [current, count] unless current.nil?; current = b; count = 1
   end
@@ -351,7 +353,7 @@ end
 runs << [current, count] unless current.nil?
 
 # with each_bit_run
-runs = data.each_bit_run(order: :lsb).to_a
+runs = data.each_bit_run(scan_order: :lsb).to_a
 ```
 
 ---
@@ -364,9 +366,9 @@ Read methods return `nil` for out-of-range positions; mutation methods raise. Th
 
 ---
 
-#### `set_bit(n, order: :lsb) -> self`
+#### `set_bit(n, count_from: :lsb) -> self`
 
-Sets bit at position `n` to 1. `order: :lsb` (default) counts from the first bit; `order: :msb` counts from the last bit.
+Sets bit at logical position `n` to 1. `count_from: :lsb` (default) counts from the first bit; `count_from: :msb` counts from the last bit.
 
 ```ruby
 bitmap = +"\x00\x00"
@@ -383,9 +385,9 @@ rows.each_with_index { |row, i| bitmap.set_bit(i) unless row[:value].nil? }
 
 ---
 
-#### `clear_bit(n, order: :lsb) -> self`
+#### `clear_bit(n, count_from: :lsb) -> self`
 
-Sets bit at position `n` to 0. `order: :lsb` (default) counts from the first bit; `order: :msb` counts from the last bit.
+Sets bit at logical position `n` to 0. `count_from: :lsb` (default) counts from the first bit; `count_from: :msb` counts from the last bit.
 
 ```ruby
 bitmap = +"\xFF\xFF"
@@ -395,9 +397,9 @@ bitmap.clear_bit(8)  #=> "\xFE\xFE"
 
 ---
 
-#### `flip_bit(n, order: :lsb) -> self`
+#### `flip_bit(n, count_from: :lsb) -> self`
 
-Toggles bit at position `n`. `order: :lsb` (default) counts from the first bit; `order: :msb` counts from the last bit.
+Toggles bit at logical position `n`. `count_from: :lsb` (default) counts from the first bit; `count_from: :msb` counts from the last bit.
 
 ```ruby
 bitmap = +"\x00"
@@ -506,7 +508,7 @@ Bitwise XOR. A bit in the result is 1 if the operands differ at that position.
 
 No block is involved; the operation applies the bitmap directly to the array.
 
-#### `mask(bitmap, order: :lsb, invert: false) -> Array`
+#### `mask(bitmap, count_from: :lsb, invert: false) -> Array`
 
 Returns a new `Array`. Elements whose corresponding bit is 1 (for `invert: false`) or 0 (for `invert: true`) are kept; all others become `nil`.
 
@@ -519,7 +521,7 @@ data.mask(bitmap)                        #=> [1, nil, 3, 4]
 
 # MSB-first: 0b11010000 -> bits 7,6,4 set = elements 0,1,3 valid
 bitmap = "\xD0".b   # 0b11010000
-data.mask(bitmap, order: :msb)           #=> [1, 2, nil, 4]
+data.mask(bitmap, count_from: :msb)      #=> [1, 2, nil, 4]
 
 # invert: true --- keep where bit is 0, nil where bit is 1
 bitmap = "\x0D".b
@@ -537,7 +539,7 @@ source_data.each_with_index { |v, i| bitmap.set_bit(i) if v }
 result = values.mask(bitmap)
 ```
 
-#### `mask!(bitmap, order: :lsb, invert: false) -> self`
+#### `mask!(bitmap, count_from: :lsb, invert: false) -> self`
 
 Same as `mask` but modifies the array in place and returns `self`. Elements that would become `nil` are overwritten; valid elements are untouched.
 

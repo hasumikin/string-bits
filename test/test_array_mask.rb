@@ -13,17 +13,17 @@ class TestArrayMask < Minitest::Test
   end
 
   def test_mask_msb_explicit
-    assert_equal [1, 2, nil, 4], DATA.mask(BITMAP_MSB, order: :msb)
+    assert_equal [1, 2, nil, 4], DATA.mask(BITMAP_MSB, count_from: :msb)
   end
 
   def test_mask_lsb_explicit
-    assert_equal [1, nil, 3, 4], DATA.mask(BITMAP_LSB, order: :lsb)
+    assert_equal [1, nil, 3, 4], DATA.mask(BITMAP_LSB, count_from: :lsb)
   end
 
   def test_mask_operation_not
     # :not inverts: where bit=0 -> keep, bit=1 -> nil
     # BITMAP_LSB bits: 0=1,1=0,2=1,3=1 -> inverted: 0=0,1=1,2=0,3=0
-    assert_equal [nil, 2, nil, nil], DATA.mask(BITMAP_LSB, order: :lsb, invert: true)
+    assert_equal [nil, 2, nil, nil], DATA.mask(BITMAP_LSB, count_from: :lsb, invert: true)
   end
 
   def test_mask_returns_new_array
@@ -34,7 +34,7 @@ class TestArrayMask < Minitest::Test
 
   def test_mask_bang_modifies_in_place
     ary = [1, 2, 3, 4]
-    result = ary.mask!(BITMAP_MSB, order: :msb)
+    result = ary.mask!(BITMAP_MSB, count_from: :msb)
     assert_same ary, result
     assert_equal [1, 2, nil, 4], ary
   end
@@ -92,7 +92,7 @@ class TestArrayMask < Minitest::Test
   end
 
   def test_mask_integer_order_msb_raises
-    assert_raises(ArgumentError) { DATA.mask(INT_BITMAP, order: :msb) }
+    assert_raises(ArgumentError) { DATA.mask(INT_BITMAP, count_from: :msb) }
   end
 
   def test_mask_integer_negative_raises

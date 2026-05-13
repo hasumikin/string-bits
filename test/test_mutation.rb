@@ -151,25 +151,25 @@ class TestSetClearFlipBit < Minitest::Test
     # "\x00\x00"
     s = +"\x00\x00"
 
-    # set_bit with order: :msb
-    s.set_bit(0, order: :msb) # Physical 15 (bit 7 of s[1])
+    # set_bit with count_from: :msb
+    s.set_bit(0, count_from: :msb) # Physical 15 (bit 7 of s[1])
     assert_equal "\x00\x80", s
 
-    s.set_bit(8, order: :msb) # Physical 7 (bit 7 of s[0])
+    s.set_bit(8, count_from: :msb) # Physical 7 (bit 7 of s[0])
     assert_equal "\x80\x80", s
 
-    # clear_bit with order: :msb
-    s.clear_bit(0, order: :msb)
+    # clear_bit with count_from: :msb
+    s.clear_bit(0, count_from: :msb)
     assert_equal "\x80\x00", s
 
-    # flip_bit with order: :msb
-    s.flip_bit(15, order: :msb) # Physical 0 (bit 0 of s[0])
+    # flip_bit with count_from: :msb
+    s.flip_bit(15, count_from: :msb) # Physical 0 (bit 0 of s[0])
     assert_equal "\x81\x00", s
   end
 
   def test_order_negative_raises_index_error
-    assert_raises(IndexError) { (+"\x00").set_bit(-1, order: :msb) }
-    assert_raises(IndexError) { (+"\xFF").clear_bit(-1, order: :msb) }
-    assert_raises(IndexError) { (+"\x00").flip_bit(-1, order: :msb) }
+    assert_raises(IndexError) { (+"\x00").set_bit(-1, count_from: :msb) }
+    assert_raises(IndexError) { (+"\xFF").clear_bit(-1, count_from: :msb) }
+    assert_raises(IndexError) { (+"\x00").flip_bit(-1, count_from: :msb) }
   end
 end

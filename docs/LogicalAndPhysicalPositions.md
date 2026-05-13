@@ -1,26 +1,26 @@
 # Logical Position vs Physical Position
 
-この文書は、bit API を初めて読む人向けに、
+This note is for readers who are new to the bit API. It explains the difference between:
 
-- 物理位置
-- 論理位置
+- physical positions
+- logical positions
 - `scan_order:`
-- `index_order:`
+- `count_from:`
 
-の違いを、アスキーアートで説明するためのメモです。
+using simple ASCII diagrams.
 
-## 1. まず「物理位置」
+## 1. Physical positions
 
-`String` はメモリ上では byte の並びです。
+A `String` is a sequence of bytes in memory.
 
-たとえば `"\xFF\xAA"` は 2 byte です。
+For example, `"\xFF\xAA"` is 2 bytes:
 
 ```text
 byte[0] = 0xFF
 byte[1] = 0xAA
 ```
 
-各 byte の中には 8 個の bit があります。
+Each byte contains 8 bits:
 
 ```text
    byte[0]                                            byte[1]
@@ -30,114 +30,108 @@ byte[1] = 0xAA
   phys 7    6     5     4     3     2     1     0    phys 15   14    13    12    11    10     9     8
 ```
 
-ここでの番号を、この文書では **物理位置** と呼びます。
+In this document, those numbers are called **physical positions**.
 
-- `phys 0` は `byte[0]` の LSB
-- `phys 7` は `byte[0]` の MSB
-- `phys 8` は `byte[1]` の LSB
-- `phys 15` は `byte[1]` の MSB
+- `phys 0` is the LSB of `byte[0]`
+- `phys 7` is the MSB of `byte[0]`
+- `phys 8` is the LSB of `byte[1]`
+- `phys 15` is the MSB of `byte[1]`
 
-つまり、
+In other words:
 
 ```text
 physical position N
-  = byte[N / 8] の bit (N % 8)
+  = bit (N % 8) of byte[N / 8]
 ```
 
-です。
+Physical position is about where the bit actually lives inside the string.
 
-## 2. 次に「論理位置」
+## 2. Logical positions
 
-人間が bit を数えるときは、いつも同じ向きとは限りません。
+Humans do not always count bits in the same direction.
 
-2 つの考え方があります。
+This API supports two numbering conventions.
 
-### 2-1. `index_order: :lsb`
+### 2-1. `count_from: :lsb`
 
-先頭から、低い物理位置へ向かって数える考え方です。
+This counts from the beginning in the ordinary low-to-high direction.
 
 ```text
 physical:  15 14 13 12 11 10  9  8   7  6  5  4  3  2  1  0
 logical :  15 14 13 12 11 10  9  8   7  6  5  4  3  2  1  0
                                               ...
-index_order: :lsb では logical == physical
+count_from: :lsb means logical == physical
 ```
 
-この場合は単純です。
+This is the simple case:
 
-- 論理位置 0 = 物理位置 0
-- 論理位置 1 = 物理位置 1
+- logical position 0 = physical position 0
+- logical position 1 = physical position 1
 - ...
 
-### 2-2. `index_order: :msb`
+### 2-2. `count_from: :msb`
 
-末尾側から逆向きに数える考え方です。
+This counts from the far end of the whole bit sequence.
 
 ```text
 physical:  15 14 13 12 11 10  9  8   7  6  5  4  3  2  1  0
 logical :   0  1  2  3  4  5  6  7   8  9 10 11 12 13 14 15
 ```
 
-この場合は、
+In this convention:
 
-- 論理位置 0 = 物理位置 15
-- 論理位置 1 = 物理位置 14
+- logical position 0 = physical position 15
+- logical position 1 = physical position 14
 - ...
-- 論理位置 15 = 物理位置 0
+- logical position 15 = physical position 0
 
-です。
-
-式で書くと:
+In formula form:
 
 ```text
 physical = total_bits - 1 - logical
 ```
 
-です。
+Logical position is not the bit's storage location. It is the number the caller uses under a chosen numbering convention.
 
-## 3. `bit_at` は「論理位置」を読む
+## 3. `bit_at` reads a logical position
 
-`bit_at(n, index_order: ...)` の `n` は、物理位置ではなく論理位置です。
+The `n` in `bit_at(n, count_from: ...)` is a logical position, not a physical one.
 
-### `index_order: :lsb`
+### `count_from: :lsb`
 
 ```ruby
 data = "\xFF\xAA"
-data.bit_at(0, index_order: :lsb)
+data.bit_at(0, count_from: :lsb)
 ```
 
-これは
+This reads:
 
 ```text
 logical 0 -> physical 0
 ```
 
-を読みます。
-
-### `index_order: :msb`
+### `count_from: :msb`
 
 ```ruby
 data = "\xFF\xAA"
-data.bit_at(0, index_order: :msb)
+data.bit_at(0, count_from: :msb)
 ```
 
-これは
+This reads:
 
 ```text
 logical 0 -> physical 15
 ```
 
-を読みます。
+So the same number `0` can mean a different bit depending on `count_from:`.
 
-つまり、同じ `0` でも意味が違います。
+## 4. `scan_order:` means traversal direction
 
-## 4. `scan_order:` は「どちらから走査するか」
+`count_from:` was about numbering.
 
-`index_order:` は「数え方」でした。
+`scan_order:` is about which side iteration starts from.
 
-`scan_order:` は「どちらから先に見るか」です。
-
-たとえば `each_bit(scan_order: :lsb)` は物理位置 0, 1, 2, ... の順で進みます。
+For example, `each_bit(scan_order: :lsb)` visits physical positions 0, 1, 2, ... in that order:
 
 ```text
 scan_order: :lsb
@@ -145,7 +139,7 @@ scan_order: :lsb
 phys 0 -> 1 -> 2 -> 3 -> ... -> 15
 ```
 
-一方 `each_bit(scan_order: :msb)` は逆です。
+By contrast, `each_bit(scan_order: :msb)` goes the other way:
 
 ```text
 scan_order: :msb
@@ -153,123 +147,120 @@ scan_order: :msb
 phys 15 -> 14 -> 13 -> 12 -> ... -> 0
 ```
 
-ここで大事なのは:
+The key point is:
 
-- `scan_order:` は「走査の順番」
-- `index_order:` は「数え方」
+- `scan_order:` means traversal order
+- `count_from:` means numbering convention
 
-であって、同じではないということです。
+Those are not the same thing.
 
-## 5. `each_set_bit_offset` が返すべきもの
+## 5. What `each_set_bit_offset` should return
 
-初心者が一番混乱しやすいのはここです。
+This is the place where beginners are most likely to get confused.
 
-`each_set_bit_offset` が返す値は、`bit_at` にそのまま渡せるべきです。
+The values returned by `each_set_bit_offset` should be usable as input to `bit_at`.
 
-つまり:
+In other words:
 
 ```ruby
-data.each_set_bit_offset(index_order: X).all? do |n|
-  data.bit_at(n, index_order: X)
+data.each_set_bit_offset(count_from: X).all? do |n|
+  data.bit_at(n, count_from: X)
 end
 #=> true
 ```
 
-でなければいけません。
+Thinking of this as a round-trip makes the design easier to understand.
 
-この性質を **round-trip できる** と考えると分かりやすいです。
+### Good design
 
-### よい設計
+Under `count_from: :msb`, the method should return logical positions in MSB numbering.
 
-`index_order: :msb` のとき、
-
-```text
-返す値も msb 側の論理位置
-```
-
-にします。
-
-たとえば `physical 15` に立っている bit は、
+For example, if a set bit is at physical position 15:
 
 ```text
-index_order: :lsb では logical 15
-index_order: :msb では logical 0
+count_from: :lsb => logical 15
+count_from: :msb => logical 0
 ```
 
-と返すべきです。
+So the returned value should be `0` in `count_from: :msb` mode.
 
-そうすれば:
+Then this works:
 
 ```ruby
-n = data.each_set_bit_offset(index_order: :msb).first
-data.bit_at(n, index_order: :msb)
+n = data.each_set_bit_offset(count_from: :msb).first
+data.bit_at(n, count_from: :msb)
 #=> true
 ```
 
-になります。
+### Bad design
 
-### よくない設計
+If `count_from: :msb` merely returned physical positions in descending order, round-trip behavior would break.
 
-`index_order: :msb` なのに、
-
-```text
-物理位置を逆順に返すだけ
-```
-
-だと壊れます。
-
-たとえば `15` を返してしまうと、
+For example, if it returned `15`, then:
 
 ```ruby
-data.bit_at(15, index_order: :msb)
+data.bit_at(15, count_from: :msb)
 ```
 
-は
+would mean:
 
 ```text
 logical 15 -> physical 0
 ```
 
-を読むので、別の bit を見に行ってしまいます。
+That is a different bit.
 
-## 6. `bit_slice` と `bit_splice` が別扱いになる理由
+## 6. Why `bit_slice` and `bit_splice` are different
 
-`bit_slice` と `bit_splice` は、論理位置や走査順よりも、
+`bit_slice` and `bit_splice` are less about logical numbering or traversal direction, and more about:
 
 ```text
-「物理的な bit 列の一部をそのまま切る / 書く」
+cutting or writing a physical subsequence of bits
 ```
 
-という性格が強い API です。
+Because of that, it is clearer for those methods to use only:
 
-そのため、これらは素直に
+- physical bit offsets counted from the start
+- ordinary LSB-first packing
 
-- 先頭から数えた物理位置
-- LSB-first の packed layout
-
-だけを受け付けるほうが分かりやすいです。
-
-## 7. まとめ
+## 7. Summary
 
 ```text
 physical position
-  実際に String の中のどの bit か
+  which bit actually exists inside the String
 
 logical position
-  人間がどの向きで数えたときの番号か
+  which number a caller uses under some counting convention
 
 scan_order:
-  どちらから先に走査するか
+  which side iteration starts from
 
-index_order:
-  logical position をどう physical position に変換するか
+count_from:
+  which bit a logical number refers to
 ```
 
-初心者向けに一言で言うと:
+In one sentence:
 
 ```text
-scan_order: どちらから見るか
-index_order: その番号がどの bit を指すか
+scan_order: which side to walk from
+count_from: which bit a number points to
 ```
 
-です。
+## 8. Why the names are different
+
+It may seem tempting to make all keyword names follow the same pattern, but `count_from:` and `scan_order:` describe different kinds of things.
+
+`count_from:` is about the meaning of a number supplied by the caller. It answers:
+
+```text
+When the caller says "bit 0", which side are we counting from?
+```
+
+That is why `count_from:` fits methods such as `bit_at`, `set_bit`, and `each_set_bit_offset`.
+
+By contrast, `scan_order:` is about iteration order.
+
+So the naming is intentionally mixed:
+
+- `count_from:` for logical numbering
+- `scan_order:` for traversal order

@@ -13,34 +13,29 @@ is kept clean to reduce that risk.
 
 ### Open design question: field assembly direction vs. traversal direction
 
-The `order:` keyword controls **record traversal direction** --- which record is visited
-first. It does not control how bits are assembled into an integer value within a single field.
-The current implementation always assembles field bits LSB-first: the lowest-numbered bit
-position contributes the least significant bit of the result.
+For packed field extraction, there are two separate axes:
+
+- `scan_order:` controls which record is visited first.
+- `field_order:` controls how bits inside each field are assembled into an `Integer`.
 
 These are two orthogonal concerns:
 
 | concern | controlled by |
 |---------|--------------|
-| which record comes first | `order:` |
-| how bits within a field form an integer | always LSB-first (not configurable) |
+| which record comes first | `scan_order:` |
+| how bits within a field form an integer | `field_order:` |
 
 For LSB-first domains (Apache Arrow, ARM registers, BLE, filesystem bitmaps) this is
 correct and requires no extra argument. For MSB-first domains (RFC network headers,
 BitTorrent, PNG sub-byte images), a field's most significant bit occupies the lowest
 bit position in the underlying byte, so LSB-first assembly yields the bit-reversed value.
-`order: :msb` changes which end of the string iteration starts from, but does not reverse
-the bit assembly within each field --- it does not solve the MSB-first field problem.
-
-A fully general design would need a second parameter (e.g., `field_order: :lsb/:msb`) to
-control field bit assembly independently of record traversal direction. Whether this
-complexity is warranted depends on how prominent MSB-first packed-field workloads are in
-practice. The current implementation defers that decision.
+`scan_order: :msb` only changes which end of the string iteration starts from; it does not
+solve the MSB-first field problem. That requires `field_order: :msb`.
 
 ---
 
-## `each_bit_field(*bitlens, order: :lsb) { |*fields| } -> self`
-## `each_bit_field(*bitlens, order: :lsb) -> Enumerator`
+## `each_bit_field(*bitlens, scan_order: :lsb, field_order: :lsb) { |*fields| } -> self`
+## `each_bit_field(*bitlens, scan_order: :lsb, field_order: :lsb) -> Enumerator`
 
 Iterates over the string as a sequence of packed bit-field records. Each positional argument
 specifies the width (in bits) of one field in the record. On each iteration, one value per
@@ -61,8 +56,10 @@ Incomplete trailing bits --- when `bytesize * 8` is not a multiple of `sum(bitle
 silently dropped, matching the behavior of `Enumerable#each_slice`.
 
 ```
-order: :lsb (default)  -- records yielded left-to-right (ascending bit position)
-order: :msb            -- records yielded right-to-left (descending bit position)
+scan_order:  :lsb (default) -- records yielded left-to-right (ascending bit position)
+scan_order:  :msb           -- records yielded right-to-left (descending bit position)
+field_order: :lsb (default) -- lowest-numbered bit becomes the least significant bit
+field_order: :msb           -- lowest-numbered bit becomes the most significant bit
 ```
 
 ```ruby
@@ -84,7 +81,7 @@ bitlens (16 for 5+6+5).
 ```ruby
 # eg1: Swap R and B channels in an RGB565 buffer
 # RGB565 LSB-first layout: bits 0-4 = blue (5), bits 5-10 = green (6), bits 11-15 = red (5)
-rgb565data.each_bit_field(5, 6, 5, order: :lsb).with_index do |(b, _g, r), iter|
+rgb565data.each_bit_field(5, 6, 5, scan_order: :lsb, field_order: :lsb).with_index do |(b, _g, r), iter|
   offset = iter * 16
   rgb565data.bit_splice(offset,      5, r)  # write red into the blue field
   rgb565data.bit_splice(offset + 11, 5, b)  # write blue into the red field
@@ -92,7 +89,7 @@ end
 
 # eg2: Convert RGB565 to 4-bit grayscale
 gray4data = "\x00" * (rgb565data.bytesize / 4)
-rgb565data.each_bit_field(5, 6, 5, order: :lsb).with_index do |(b, g, r), index|
+rgb565data.each_bit_field(5, 6, 5, scan_order: :lsb, field_order: :lsb).with_index do |(b, g, r), index|
   gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
   gray4data.bit_splice(index * 4, 4, gray8 >> 4)
 end
@@ -105,7 +102,7 @@ maintaining external state between calls:
 ```ruby
 bitlen = 12
 
-data.each_bit_field(bitlen, bitlen, order: :lsb) do |plane0, plane1|
+data.each_bit_field(bitlen, bitlen, scan_order: :lsb, field_order: :lsb) do |plane0, plane1|
   line = ""
   i = 0
   while i < bitlen
@@ -126,8 +123,8 @@ with `bit_splice` require no intermediate conversion or packing step.
 
 ---
 
-## `bit_fields(*bitlens, order: :lsb) -> Array`
-## `bit_fields(*bitlens, order: :lsb) { |*fields| } -> self`
+## `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) -> Array`
+## `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) { |*fields| } -> self`
 
 Non-iterator complement of `each_bit_field`. Without a block, collects all records into an
 `Array` and returns it. With a block, yields the same values as `each_bit_field` (without
@@ -150,7 +147,7 @@ pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
 pixel.bit_fields(5, 6, 5)
 #=> [[21, 42, 10]]
 
-data.bit_fields(8, order: :msb)
+data.bit_fields(8, scan_order: :msb)
 #=> [0xCC, 0xAA]          # records in reverse order
 ```
 

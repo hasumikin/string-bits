@@ -31,22 +31,38 @@ s.set_bit(100)      #=> IndexError
 s.set_bit(2**100)   #=> ArgumentError
 ```
 
-### The `order:` parameter (LSB or MSB)
+### `scan_order:` and `count_from:`
 
-The `order:` keyword controls **interpretation and traversal direction**. It defines which bit is considered "first" (index 0).
+The earlier `order:` keyword tried to cover two different concepts:
 
-| `order:` | interpretation | position sequence / indexing |
-|----------|-----------|-------------------|
-| `:lsb` (default) | low -> high | 0, 1, 2, ... , total-1 |
-| `:msb`   | high -> low | total-1, ..., 2, 1, 0 |
+- traversal direction
+- logical numbering of bit positions
 
-For iterative methods (`each_bit`, `each_set_bit_offset`, `each_bit_run`), it controls yield order. For index-based methods (`bit_at`, `set_bit`, `clear_bit`, `flip_bit`) and for `Array#mask`, it defines the mapping of logical index `n` to physical bit position. `bit_slice`, `bit_splice`, and `bit_run_count` operate exclusively in flat LSB-first numbering and do not accept `order:` --- their range/scan semantics have no well-defined dual under reverse indexing.
+These are now split.
 
-Important: `order: :msb` does **not** mean "keep byte order and only flip the bit numbering inside each byte". It means reverse indexing over the entire bit sequence: logical position 0 is the last physical bit of the string, logical position 1 is the second-last physical bit, and so on.
+| keyword | applies to | meaning |
+|---------|------------|---------|
+| `scan_order:` | `each_bit`, `bits`, `each_bit_run`, `bit_runs` | which physical bit is visited first |
+| `count_from:` | `bit_at`, `set_bit`, `clear_bit`, `flip_bit`, `each_set_bit_offset`, `set_bit_offsets`, `Array#mask` | how a logical position `n` maps to a physical bit |
 
-The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). It keeps `bit_at(i)`, `values.mask(bitmap)`, and `bitmap.each_set_bit_offset { |i| values[i] }` aligned without extra conversion. `order: :msb` is useful when reverse traversal of the whole bit sequence is desired, but it is not a "network bit order" mode.
+`bit_slice`, `bit_splice`, and `bit_run_count` operate exclusively in flat LSB-first physical numbering and do not accept either keyword.
 
-The symbol values `:lsb` and `:msb` leave room for future extensions (e.g. `:native`, `:network`) without breaking changes. As a consequence, `each_bit(order: :msb).to_a` is always the reverse of `each_bit.to_a`, and the same holds for `each_set_bit_offset`.
+`count_from: :msb` does **not** mean "keep byte order and only flip the bit numbering inside each byte". It means reverse numbering over the entire bit sequence: logical position 0 is the last physical bit of the string, logical position 1 is the second-last physical bit, and so on.
+
+The default is `:lsb` for consistency with `Array#mask` and the Apache Arrow convention (element `i` = byte `i/8` bit `i%8`). It keeps `bit_at(i)`, `values.mask(bitmap)`, and `bitmap.each_set_bit_offset { |i| values[i] }` aligned without extra conversion.
+
+For `each_set_bit_offset` and `set_bit_offsets`, this split fixes an important round-trip property. Under `count_from: :msb`, the yielded values are logical positions in MSB numbering, not physical positions in descending order. As a consequence:
+
+```ruby
+data.each_set_bit_offset(count_from: :msb).all? do |n|
+  data.bit_at(n, count_from: :msb)
+end
+#=> true
+```
+
+To keep those logical positions ascending, the iteration itself walks physical positions in reverse.
+
+By contrast, `scan_order: :msb` is only about traversal. `each_bit(scan_order: :msb).to_a` is always the reverse of `each_bit.to_a`, and the same holds for `each_bit_run` / `bit_runs`.
 
 ### Naming convention: symmetry with `bytes` / `each_byte`
 
@@ -94,13 +110,12 @@ The obvious alternative is a dedicated `BitSet` class (analogous to Java's `java
 | domain | native bit ordering | compatibility with current design |
 |--------|---------------------|------------------------------------|
 | Apache Arrow validity bitmap | LSB-first (element i = byte[i/8] bit i%8) | native |
-| ARM / STM32 register fields | register convention: bit 0 = LSB | analogous |
 | ext4 block bitmap | LSB-first | native |
 | RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | not native; explicit offset conversion needed |
 | BitTorrent bitfield message | piece 0 = MSB of byte 0 | not native; explicit offset conversion needed |
 | PNG 1/2/4-bit scanlines | MSB = leftmost pixel | not native; explicit offset conversion needed |
 
-The table is limited to cases where bit numbering is directly relevant to a byte buffer held in memory. LSB-first layouts align directly with this API. MSB-first layouts inside each byte are still addressable, but require explicit offset conversion because `order: :msb` reverses the whole bit sequence rather than preserving byte order.
+The table is limited to cases where bit numbering is directly relevant to a byte buffer held in memory. LSB-first layouts align directly with this API. MSB-first layouts inside each byte are still addressable, but require explicit offset conversion because `count_from: :msb` reverses the whole bit sequence rather than preserving byte order.
 
 ### Apache Arrow Compatibility
 
@@ -123,7 +138,7 @@ Arrow validity bitmap for 10 elements (byte[0] = 0b11111111, byte[1] = 0b0000001
   validity:  ok   ok   ok   ok   ok   ok   ok   ok   ok   ok
 ```
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(order: :lsb)` yields valid element indices in ascending order. `Array#mask(bitmap, order: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values.
+`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(count_from: :lsb)` yields valid element indices in ascending order. `Array#mask(bitmap, count_from: :lsb)` materializes an Arrow column as a Ruby array with `nil` in place of null values.
 
 #### Arrow IPC serialization
 

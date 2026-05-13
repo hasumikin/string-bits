@@ -31,7 +31,7 @@ benchmark:
   # writes only the two changed fields back, leaving green untouched.
   string_bits: |
     result = DATA.dup
-    result.each_bit_field(5, 6, 5, order: :lsb).each_with_index do |(b, _g, r), iter|
+    result.each_bit_field(5, 6, 5, scan_order: :lsb, field_order: :lsb).each_with_index do |(b, _g, r), iter|
       offset = iter * 16
       result.bit_splice(offset,      5, [r].pack('C'))
       result.bit_splice(offset + 11, 5, [b].pack('C'))

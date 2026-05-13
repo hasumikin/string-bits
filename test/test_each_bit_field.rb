@@ -12,7 +12,8 @@ class TestEachBitField < Minitest::Test
 
   def test_returns_enumerator_with_options
     assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, 8)
-    assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, order: :msb)
+    assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, scan_order: :msb)
+    assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, field_order: :msb)
   end
 
   def test_returns_self_with_block
@@ -143,12 +144,12 @@ class TestEachBitField < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".each_bit_field(4, 65) {} }
   end
 
-  # --- order: :msb ---
+  # --- scan_order: :msb ---
 
   def test_msb_reverses_iteration_order
     data = "\xAA\xBB\xCC\xDD"
     lsb = data.each_bit_field(8).to_a
-    msb = data.each_bit_field(8, order: :msb).to_a
+    msb = data.each_bit_field(8, scan_order: :msb).to_a
     assert_equal lsb.reverse, msb
   end
 
@@ -157,8 +158,22 @@ class TestEachBitField < Minitest::Test
     lsb_groups = []
     msb_groups = []
     data.each_bit_field(8, 8) { |a, b| lsb_groups << [a, b] }
-    data.each_bit_field(8, 8, order: :msb) { |a, b| msb_groups << [a, b] }
+    data.each_bit_field(8, 8, scan_order: :msb) { |a, b| msb_groups << [a, b] }
     assert_equal lsb_groups.reverse, msb_groups
+  end
+
+  # --- field_order: :msb ---
+
+  def test_field_order_msb_reverses_bits_within_each_field
+    data = "\x16" # low nibble is 0b0110
+    assert_equal [0b0110, 0b0001], data.each_bit_field(4).to_a
+    assert_equal [0b0110, 0b1000], data.each_bit_field(4, field_order: :msb).to_a
+  end
+
+  def test_field_order_msb_with_rgb565_fields
+    pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
+    assert_equal [[21, 42, 10]], pixel.each_bit_field(5, 6, 5).to_a
+    assert_equal [[21, 21, 10]], pixel.each_bit_field(5, 6, 5, field_order: :msb).to_a
   end
 
   # --- Error handling ---
@@ -183,8 +198,12 @@ class TestEachBitField < Minitest::Test
     assert_raises(ArgumentError) { "\xAA".each_bit_field(4, -1) {} }
   end
 
-  def test_argument_error_for_invalid_order
-    assert_raises(ArgumentError) { "\xAA".each_bit_field(4, order: :foo) {} }
+  def test_argument_error_for_invalid_scan_order
+    assert_raises(ArgumentError) { "\xAA".each_bit_field(4, scan_order: :foo) {} }
+  end
+
+  def test_argument_error_for_invalid_field_order
+    assert_raises(ArgumentError) { "\xAA".each_bit_field(4, field_order: :foo) {} }
   end
 
   # --- Enumerator behavior ---

@@ -77,22 +77,34 @@ class TestBitFields < Minitest::Test
     assert_empty "".bit_fields(8)
   end
 
-  # --- order: :msb ---
+  # --- scan_order: :msb ---
 
   def test_msb_reverses_order_single_field
     data = "\xAA\xBB\xCC\xDD"
-    assert_equal data.bit_fields(8).reverse, data.bit_fields(8, order: :msb)
+    assert_equal data.bit_fields(8).reverse, data.bit_fields(8, scan_order: :msb)
   end
 
   def test_msb_reverses_order_multi_field
     data = "\xAA\xBB\xCC\xDD"
-    assert_equal data.bit_fields(8, 8).reverse, data.bit_fields(8, 8, order: :msb)
+    assert_equal data.bit_fields(8, 8).reverse, data.bit_fields(8, 8, scan_order: :msb)
   end
 
   def test_msb_matches_each_bit_field_to_a
     data = "\xAA\xCC\xFF\x00"
-    assert_equal data.each_bit_field(8, order: :msb).to_a, data.bit_fields(8, order: :msb)
-    assert_equal data.each_bit_field(8, 8, order: :msb).to_a, data.bit_fields(8, 8, order: :msb)
+    assert_equal data.each_bit_field(8, scan_order: :msb).to_a, data.bit_fields(8, scan_order: :msb)
+    assert_equal data.each_bit_field(8, 8, scan_order: :msb).to_a, data.bit_fields(8, 8, scan_order: :msb)
+  end
+
+  # --- field_order: :msb ---
+
+  def test_field_order_msb_single_field
+    assert_equal [0b0110, 0b1000], "\x16".bit_fields(4, field_order: :msb)
+  end
+
+  def test_field_order_msb_matches_each_bit_field
+    data = "\xAA\xCC\xFF\x00"
+    assert_equal data.each_bit_field(6, field_order: :msb).to_a, data.bit_fields(6, field_order: :msb)
+    assert_equal data.each_bit_field(5, 6, 5, field_order: :msb).to_a, data.bit_fields(5, 6, 5, field_order: :msb)
   end
 
   # --- Block form ---
@@ -117,7 +129,7 @@ class TestBitFields < Minitest::Test
 
   def test_block_msb_order
     vals = []
-    "\xAA\xBB\xCC\xDD".bit_fields(8, order: :msb) { |v| vals << v }
+    "\xAA\xBB\xCC\xDD".bit_fields(8, scan_order: :msb) { |v| vals << v }
     assert_equal [0xDD, 0xCC, 0xBB, 0xAA], vals
   end
 
@@ -148,7 +160,11 @@ class TestBitFields < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_fields(4, 65) }
   end
 
-  def test_argument_error_for_invalid_order
-    assert_raises(ArgumentError) { "\xAA".bit_fields(4, order: :foo) }
+  def test_argument_error_for_invalid_scan_order
+    assert_raises(ArgumentError) { "\xAA".bit_fields(4, scan_order: :foo) }
+  end
+
+  def test_argument_error_for_invalid_field_order
+    assert_raises(ArgumentError) { "\xAA".bit_fields(4, field_order: :foo) }
   end
 end
