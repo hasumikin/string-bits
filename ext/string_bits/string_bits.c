@@ -18,6 +18,12 @@
 #  include <intrin.h>
 #endif
 
+/* __has_builtin polyfill: GCC < 10 and other compilers do not define it.
+ * Treating it as always-false there causes the fallback paths to be used. */
+#ifndef __has_builtin
+#  define __has_builtin(x) 0
+#endif
+
 static inline unsigned int
 sb_popcount64(uint64_t x)
 {
