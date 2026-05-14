@@ -319,25 +319,35 @@ rb_str_bit_count(VALUE self)
     long count = 0;
     long len = RSTRING_LEN(self);
     const char *str = RSTRING_PTR(self);
-    const uint64_t *ptr = (const uint64_t *)str;
-    const uint64_t *aligned_end = (const uint64_t *)(str + (len & ~7));
-    const uint64_t *unrolled_end = (const uint64_t *)(str + (len & ~31));
+    long off = 0;
+    long unrolled_end = len & ~31L;
+    long aligned_end  = len & ~7L;
 
-    for (; ptr < unrolled_end; ptr += 4) {
-        count += sb_popcount64(ptr[0]);
-        count += sb_popcount64(ptr[1]);
-        count += sb_popcount64(ptr[2]);
-        count += sb_popcount64(ptr[3]);
+    /* Use memcpy to avoid unaligned loads (SIGBUS on SPARC, MIPS, etc.)
+     * and strict-aliasing violations. Modern compilers fold 8-byte memcpy
+     * into a single load on platforms that allow unaligned access. */
+    for (; off < unrolled_end; off += 32) {
+        uint64_t w0, w1, w2, w3;
+        memcpy(&w0, str + off,      8);
+        memcpy(&w1, str + off + 8,  8);
+        memcpy(&w2, str + off + 16, 8);
+        memcpy(&w3, str + off + 24, 8);
+        count += sb_popcount64(w0);
+        count += sb_popcount64(w1);
+        count += sb_popcount64(w2);
+        count += sb_popcount64(w3);
     }
 
-    for (; ptr < aligned_end; ptr++) {
-        count += sb_popcount64(*ptr);
+    for (; off < aligned_end; off += 8) {
+        uint64_t w;
+        memcpy(&w, str + off, 8);
+        count += sb_popcount64(w);
     }
 
-    long remainder = len & 7;
+    long remainder = len - aligned_end;
     if (remainder > 0) {
         uint64_t last = 0;
-        const unsigned char *tail = (const unsigned char *)aligned_end;
+        const unsigned char *tail = (const unsigned char *)(str + aligned_end);
         for (long i = 0; i < remainder; i++) {
             last |= (uint64_t)tail[i] << (i * 8);
         }
@@ -423,13 +433,14 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     if (!msb_first) {
         /* LSB-first: ascending positions 0, 1, 2, ...
-         * On little-endian, loading 8 bytes as uint64_t preserves the flat
-         * LSB-first bit numbering: word bit 0 == position 0, bit 63 == 63. */
+         * On little-endian, loading 8 bytes as a uint64_t preserves the flat
+         * LSB-first bit numbering: word bit 0 == position 0, bit 63 == 63.
+         * memcpy avoids unaligned-load SIGBUS on strict-alignment platforms. */
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
         long n_words = len >> 3;
-        const uint64_t *words = (const uint64_t *)str;
         for (long wi = 0; wi < n_words; wi++) {
-            uint64_t w = words[wi];
+            uint64_t w;
+            memcpy(&w, str + wi * 8, 8);
             while (w != 0) {
                 int bit = sb_ctzll(w);
                 rb_yield(LONG2FIX(wi * 64 + bit));
@@ -484,23 +495,26 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
         ary = Qnil;
     }
     else {
-        /* Pre-size the Array with popcount to avoid repeated reallocation. */
+        /* Pre-size the Array with popcount to avoid repeated reallocation.
+         * memcpy avoids unaligned-load issues on strict-alignment platforms. */
         long count = 0;
         long nw = len >> 3;
-        const uint64_t *wp = (const uint64_t *)str;
-        for (long wi = 0; wi < nw; wi++)
-            count += sb_popcount64(wp[wi]);
+        for (long wi = 0; wi < nw; wi++) {
+            uint64_t w;
+            memcpy(&w, str + wi * 8, 8);
+            count += sb_popcount64(w);
+        }
         for (long bi = nw << 3; bi < len; bi++)
-            count += sb_popcount64((uint64_t)str[bi]);
+            count += sb_popcount64((uint64_t)(unsigned char)str[bi]);
         ary = rb_ary_new_capa(count);
     }
 
     if (!msb_first) {
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
         long n_words = len >> 3;
-        const uint64_t *words = (const uint64_t *)str;
         for (long wi = 0; wi < n_words; wi++) {
-            uint64_t w = words[wi];
+            uint64_t w;
+            memcpy(&w, str + wi * 8, 8);
             while (w != 0) {
                 int bit = sb_ctzll(w);
                 VALUE pos = LONG2FIX(wi * 64 + bit);
