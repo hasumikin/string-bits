@@ -12,7 +12,7 @@ Two distinct categories of "out of range" are handled differently.
 
 **Index outside the string's bit length** --- read methods return `nil`; mutation methods raise `IndexError`. The asymmetry is intentional: a missed read is a logic question ("is this bit set?"), while a missed write risks silent data corruption. This mirrors Ruby's own `String#[]` (returns `nil` for out-of-bounds reads) and `String#setbyte` (raises `IndexError` for out-of-bounds writes).
 
-**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API.
+**Index outside the implementation's supported integer range** --- all methods raise `ArgumentError`. The goal is deterministic behavior for clearly invalid input, rather than leaking platform-dependent conversion details into the public API. Bit indices are held internally in a pointer-width signed integer (`ssize_t`), so the supported range is the same across LP64 and LLP64 (64-bit Windows) systems.
 
 ```ruby
 s = "\xFF"
