@@ -594,6 +594,7 @@ sb_extract_bits(unsigned char *dst, long out_bytes,
 }
 
 /* String#bit_slice(bit_offset, bit_length) -> String
+ * String#bit_slice(range) -> String
  *
  *   str = "\xFF\x00" # 11111111 00000000
  *   str.bit_slice(4, 8) # => "\xF0" (11110000)
@@ -601,20 +602,37 @@ sb_extract_bits(unsigned char *dst, long out_bytes,
 static VALUE
 rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
 {
-    VALUE bit_offset, bit_length;
-    rb_scan_args(argc, argv, "20", &bit_offset, &bit_length);
-
-    if (!rb_integer_type_p(bit_offset) || !rb_integer_type_p(bit_length)) {
-        return Qnil;
-    }
-
-    long offset = integer_to_bit_idx(bit_offset);
-    long length = integer_to_bit_idx(bit_length);
-
-    if (offset < 0 || length < 0) return Qnil;
-
     long src_len = RSTRING_LEN(self);
     long total_bits = src_len * 8;
+    long offset, length;
+    VALUE v0, v1;
+    int n_pos = rb_scan_args(argc, argv, "11", &v0, &v1);
+
+    if (n_pos == 1 && rb_obj_is_kind_of(v0, rb_cRange)) {
+        long beg, len;
+        if (!RTEST(rb_range_beg_len(v0, &beg, &len, total_bits, 0))) {
+            return Qnil;
+        }
+        offset = beg;
+        length = len;
+    }
+    else if (n_pos == 2) {
+        if (!rb_integer_type_p(v0) || !rb_integer_type_p(v1)) {
+            return Qnil;
+        }
+
+        offset = integer_to_bit_idx(v0);
+        length = integer_to_bit_idx(v1);
+
+        if (offset < 0 || length < 0) return Qnil;
+    }
+    else if (n_pos == 1) {
+        return Qnil;
+    }
+    else {
+        rb_raise(rb_eArgError,
+                 "wrong number of arguments (given %d, expected 1 or 2)", n_pos);
+    }
 
     if (offset > total_bits) return Qnil;
     long available = total_bits - offset;

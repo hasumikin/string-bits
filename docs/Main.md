@@ -65,6 +65,7 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 **Bit-range I/O**
 
 - `bit_slice(bit_offset, bit_length) -> String | nil`
+     `bit_slice(range) -> String | nil`
 - `bit_splice(bit_index, bit_length, str) -> self`
      `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
      `bit_splice(range, str) -> self`

@@ -19,6 +19,22 @@ class TestBitSlice < Minitest::Test
     assert_equal "\xAF", "\xFF\xAA".bit_slice(4, 8)
   end
 
+  def test_range_inclusive_first_byte
+    assert_equal "\xFF", "\xFF\xAA".bit_slice(0..7)
+  end
+
+  def test_range_exclusive_first_byte
+    assert_equal "\xFF", "\xFF\xAA".bit_slice(0...8)
+  end
+
+  def test_range_crossing_byte_boundary
+    assert_equal "\xAF", "\xFF\xAA".bit_slice(4..11)
+  end
+
+  def test_negative_range_counts_from_end
+    assert_equal "\xAA", "\xFF\xAA".bit_slice(-8..-1)
+  end
+
   def test_length_zero_returns_empty_string
     assert_equal "", "\xFF".bit_slice(0, 0)
   end
@@ -29,6 +45,10 @@ class TestBitSlice < Minitest::Test
 
   def test_offset_beyond_range_returns_nil
     assert_nil "\xFF".bit_slice(9, 1)
+  end
+
+  def test_range_beyond_range_returns_nil
+    assert_nil "\xFF".bit_slice(9..10)
   end
 
   def test_negative_offset_returns_nil
@@ -89,6 +109,12 @@ class TestBitSlice < Minitest::Test
     assert_nil "\xFF".bit_slice(0, 0.5)
     assert_nil "\xFF".bit_slice(0, nil)
     assert_nil "\xFF".bit_slice(0, :foo)
+  end
+
+  def test_non_range_single_argument_returns_nil
+    assert_nil "\xFF".bit_slice("0")
+    assert_nil "\xFF".bit_slice(nil)
+    assert_nil "\xFF".bit_slice(:foo)
   end
 
   def test_bignum_offset_raises_argument_error

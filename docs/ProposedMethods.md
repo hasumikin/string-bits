@@ -209,8 +209,11 @@ Without a block, equivalent to `each_set_bit_offset(count_from: count_from).to_a
 ### Flat
 
 #### `bit_slice(bit_offset, bit_length) -> String | nil`
+#### `bit_slice(range) -> String | nil`
 
 The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset` (counted from the first bit, LSB-first).
+
+The range form is equivalent to the integer form, with the offset and length derived from the given bit range. Negative indices count backward from the end, exactly as in `byteslice` and `[]`.
 
 The result length is `ceil(bit_length / 8)` bytes. If `bit_length` is not a multiple of 8, the unused high bits of the last byte are cleared to zero.
 
@@ -222,6 +225,10 @@ data = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
 data.bit_slice(0, 8)   #=> "\xFF"
 data.bit_slice(8, 8)   #=> "\xAA"
 data.bit_slice(4, 8)   #=> "\xAF"   # bits 4-11 packed LSB-first
+
+data.bit_slice(0..7)   #=> "\xFF"
+data.bit_slice(0...8)  #=> "\xFF"
+data.bit_slice(-8..-1) #=> "\xAA"
 ```
 
 The result String uses the same flat numbering scheme as the source, so `bit_at` and all iteration methods work directly on it:
