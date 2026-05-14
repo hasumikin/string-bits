@@ -28,6 +28,21 @@
 #  define __has_builtin(x) 0
 #endif
 
+/* Endianness detection.
+ * Prefer Ruby's autoconf-derived WORDS_BIGENDIAN (always available in Ruby
+ * extension builds). Falls back to __BYTE_ORDER__ (GCC/Clang) and known LE
+ * targets for MSVC. SB_LITTLE_ENDIAN evaluates to 1 only when we can prove
+ * the platform is LE; otherwise the portable byte-by-byte path is used. */
+#if defined(WORDS_BIGENDIAN)
+#  define SB_LITTLE_ENDIAN 0
+#elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#  define SB_LITTLE_ENDIAN 1
+#elif defined(_MSC_VER)
+#  define SB_LITTLE_ENDIAN 1   /* MSVC targets (x86/x64/ARM64) are all LE */
+#else
+#  define SB_LITTLE_ENDIAN 0
+#endif
+
 static inline unsigned int
 sb_popcount64(uint64_t x)
 {
@@ -446,7 +461,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
          * On little-endian, loading 8 bytes as a uint64_t preserves the flat
          * LSB-first bit numbering: word bit 0 == position 0, bit 63 == 63.
          * memcpy avoids unaligned-load SIGBUS on strict-alignment platforms. */
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if SB_LITTLE_ENDIAN
         long n_words = len >> 3;
         for (long wi = 0; wi < n_words; wi++) {
             uint64_t w;
@@ -520,7 +535,7 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
     }
 
     if (!msb_first) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if SB_LITTLE_ENDIAN
         long n_words = len >> 3;
         for (long wi = 0; wi < n_words; wi++) {
             uint64_t w;
@@ -589,7 +604,7 @@ sb_extract_bits(unsigned char *dst, long out_bytes,
     } else {
         int anti_shift = 8 - shift;
         long i = 0;
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if SB_LITTLE_ENDIAN
         long out_bytes64 = out_bytes / 8;
         for (; i < out_bytes64; i++) {
             if (byte_off + i * 8 + 8 < src_len) {
@@ -1099,7 +1114,7 @@ count_run_lsb(const unsigned char *src, long src_len, long pos, int target)
             return count < max_run ? count : max_run;
     }
 
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if SB_LITTLE_ENDIAN
     /* full 8-byte words: skip 64 identical bits per iteration */
     while (byte_idx + 8 <= src_len) {
         uint64_t word;
@@ -1162,7 +1177,7 @@ count_run_msb(const unsigned char *src, long pos, int target)
             return count < max_run ? count : max_run;
     }
 
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if SB_LITTLE_ENDIAN
     /* full 8-byte words, scanning backward */
     while (byte_idx >= 7) {
         uint64_t word;
@@ -1188,7 +1203,7 @@ count_run_msb(const unsigned char *src, long pos, int target)
     }
 #endif
 
-#if !defined(__BYTE_ORDER__) || __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#if !SB_LITTLE_ENDIAN
 byte_by_byte:
 #endif
     /* remaining full bytes, scanning from high to low */
