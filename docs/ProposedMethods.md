@@ -362,11 +362,11 @@ Returns the total number of set-bits across the entire string.
 "\xFF\xFF".bit_count #=> 16
 ```
 
-Apache Arrow idiom --- count valid and null elements:
+Apache Arrow idiom --- count valid and null elements (note that the bitmap may have unused trailing bits in the last byte, so the column's row count must come from schema metadata, not from `bytesize * 8`):
 
 ```ruby
 valid_count = bitmap.bit_count
-null_count  = bitmap.bytesize * 8 - bitmap.bit_count
+null_count  = row_count - valid_count
 ```
 
 ---

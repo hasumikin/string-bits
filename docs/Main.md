@@ -42,53 +42,49 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 
 **Read-only access**
 
-- `bit_at(n, count_from: :lsb) -> true | false | nil`
-- `bit_count -> Integer`
+- `bit_at(n, count_from: :lsb) -> true | false | nil` -- read a single bit
+- `bit_count -> Integer` -- count of set-bits (popcount)
 
 **Single-bit mutation**
 
-- `set_bit(n, count_from: :lsb) -> self`
-- `clear_bit(n, count_from: :lsb) -> self`
-- `flip_bit(n, count_from: :lsb) -> self`
+- `set_bit(n, count_from: :lsb) -> self` -- set bit at n to 1
+- `clear_bit(n, count_from: :lsb) -> self` -- set bit at n to 0
+- `flip_bit(n, count_from: :lsb) -> self` -- toggle bit at n
 
 **Iteration**
 
 - `each_bit(scan_order: :lsb) { |bool| ... } -> self`
-     `each_bit(scan_order: :lsb) -> Enumerator`
+     `each_bit(scan_order: :lsb) -> Enumerator` -- yield each bit as true/false
 - `bits(scan_order: :lsb) -> Array`
-     `bits(scan_order: :lsb) { |bool| ... } -> self`
+     `bits(scan_order: :lsb) { |bool| ... } -> self` -- Array (or block) form of `each_bit`
 - `each_set_bit_offset(count_from: :lsb) { |n| ... } -> self`
-     `each_set_bit_offset(count_from: :lsb) -> Enumerator`
+     `each_set_bit_offset(count_from: :lsb) -> Enumerator` -- yield position of each set-bit
 - `set_bit_offsets(count_from: :lsb) -> Array`
-     `set_bit_offsets(count_from: :lsb) { |n| ... } -> self`
+     `set_bit_offsets(count_from: :lsb) { |n| ... } -> self` -- Array (or block) form of `each_set_bit_offset`
 
 **Bit-range I/O**
 
 - `bit_slice(bit_offset, bit_length) -> String | nil`
-     `bit_slice(range) -> String | nil`
+     `bit_slice(range) -> String | nil` -- extract a sub-sequence of bits (bit-granularity `byteslice`)
 - `bit_splice(bit_index, bit_length, str) -> self`
      `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
      `bit_splice(range, str) -> self`
-     `bit_splice(range, str, str_range) -> self`
+     `bit_splice(range, str, str_range) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
 
 **Run-length**
 
-- `bit_run_count(pos, bit) -> Integer | nil`
+- `bit_run_count(pos, bit) -> Integer | nil` -- length of the run of `bit` starting at pos
 - `each_bit_run(scan_order: :lsb) { |bit, len| } -> self`
-     `each_bit_run(scan_order: :lsb) -> Enumerator`
+     `each_bit_run(scan_order: :lsb) -> Enumerator` -- yield `(bit, run_length)` pairs
 - `bit_runs(scan_order: :lsb) -> Array`
-     `bit_runs(scan_order: :lsb) { |bit, len| } -> self`
+     `bit_runs(scan_order: :lsb) { |bit, len| } -> self` -- Array (or block) form of `each_bit_run`
 
 **Bulk bitwise**
 
-- `bit_not -> String`
-- `bit_not! -> self`
-- `bit_and(other) -> String`
-- `bit_and!(other) -> self`
-- `bit_or(other) -> String`
-- `bit_or!(other) -> self`
-- `bit_xor(other) -> String`
-- `bit_xor!(other) -> self`
+- `bit_not -> String` / `bit_not! -> self` -- invert every bit
+- `bit_and(other) -> String` / `bit_and!(other) -> self` -- bitwise AND
+- `bit_or(other) -> String` / `bit_or!(other) -> self` -- bitwise OR
+- `bit_xor(other) -> String` / `bit_xor!(other) -> self` -- bitwise XOR
 
 ## Performance
 

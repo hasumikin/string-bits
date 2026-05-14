@@ -16,10 +16,11 @@ Two distinct categories of "out of range" are handled differently.
 
 ```ruby
 s = "\xFF"
-s.bit_at(100)       #=> nil
-s.bit_at(2**100)    #=> ArgumentError
-s.set_bit(100)      #=> IndexError
-s.set_bit(2**100)   #=> ArgumentError
+s.bit_at(100)            #=> nil
+s.bit_at(2**100)         #=> ArgumentError
+s.bit_run_count(100, 0)  #=> nil
+s.set_bit(100)           #=> IndexError
+s.set_bit(2**100)        #=> ArgumentError
 ```
 
 ### Naming convention: symmetry with `bytes` / `each_byte`
