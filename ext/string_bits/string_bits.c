@@ -1,6 +1,10 @@
 #include "ruby.h"
 #include "ruby/encoding.h"
 
+#include <limits.h>   /* CHAR_BIT */
+#include <stdint.h>   /* uint64_t, UINT64_MAX */
+#include <string.h>   /* memcpy */
+
 /* popcount ----------------------------------------------------------------- */
 /*
  * Porting to Ruby Core:
