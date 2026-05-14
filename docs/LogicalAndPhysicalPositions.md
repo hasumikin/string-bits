@@ -273,6 +273,8 @@ These methods accept or return bit numbers that a caller can use directly.
 
 That is why they use `count_from:`. The question is not "which side do we walk from?" but "which bit does this number mean?"
 
+As a naming alternative, `each_setbit_offset` is also plausible. It is only one character shorter, but removing one underscore makes the name read as three chunks (`each` / `setbit` / `offset`) rather than four. The current draft keeps `each_set_bit_offset` because it is the most explicit spelling, but `each_setbit_offset` is a reasonable candidate if the present name is judged too long.
+
 ### Flat
 
 These methods operate on physical bit offsets directly.
