@@ -206,6 +206,11 @@ class TestEachBitField < Minitest::Test
     assert_raises(ArgumentError) { "\xAA".each_bit_field(4, field_order: :foo) {} }
   end
 
+  def test_argument_error_for_unknown_keyword
+    err = assert_raises(ArgumentError) { "\xAA".each_bit_field(4, count_from: :lsb).to_a }
+    assert_match(/unknown keyword/, err.message)
+  end
+
   # --- Enumerator behavior ---
 
   def test_enumerator_to_a_single_field

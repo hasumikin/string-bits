@@ -7,9 +7,7 @@ This note is for readers who are new to the bit API. It explains the difference 
 - `scan_order:`
 - `count_from:`
 
-using simple ASCII diagrams.
-
-## 1. Physical positions
+## 1. Physical Positions
 
 A `String` is a sequence of bytes in memory.
 
@@ -23,34 +21,35 @@ byte[1] = 0xAA
 Each byte contains 8 bits:
 
 ```text
-   byte[0]                                            byte[1]
-   +-----+-----+-----+-----+-----+-----+-----+-----+  +-----+-----+-----+-----+-----+-----+-----+-----+
-   | b7  | b6  | b5  | b4  | b3  | b2  | b1  | b0  |  | b7  | b6  | b5  | b4  | b3  | b2  | b1  | b0  |
-   +-----+-----+-----+-----+-----+-----+-----+-----+  +-----+-----+-----+-----+-----+-----+-----+-----+
-  phys 7    6     5     4     3     2     1     0    phys 15   14    13    12    11    10     9     8
+  byte[0]                                      byte[1]
+  +----+----+----+----+----+----+----+----+    +----+----+----+----+----+----+----+----+
+  | b7 | b6 | b5 | b4 | b3 | b2 | b1 | b0 |    | b7 | b6 | b5 | b4 | b3 | b2 | b1 | b0 |
+  +----+----+----+----+----+----+----+----+    +----+----+----+----+----+----+----+----+
+phys 7    6    5    4    3    2    1    0   phys 15   14   13   12   11   10    9    8
+     ^                                  ^         ^                                  ^
+     b                                  a         d                                  c
 ```
 
 In this document, those numbers are called **physical positions**.
 
-- `phys 0` is the LSB of `byte[0]`
-- `phys 7` is the MSB of `byte[0]`
-- `phys 8` is the LSB of `byte[1]`
-- `phys 15` is the MSB of `byte[1]`
+- a: `phys 0` is the LSB of `byte[0]`
+- b: `phys 7` is the MSB of `byte[0]`
+- c: `phys 8` is the LSB of `byte[1]`
+- d: `phys 15` is the MSB of `byte[1]`
 
 In other words:
 
 ```text
-physical position N
-  = bit (N % 8) of byte[N / 8]
+physical position N = bit (N % 8) of byte[N / 8]
 ```
 
 Physical position is about where the bit actually lives inside the string.
 
 ## 2. Logical positions
 
-Humans do not always count bits in the same direction.
+We do not always count bits in the same direction.
 
-This API supports two numbering conventions.
+The Bit-APIs of `String` supports two numbering conventions.
 
 ### 2-1. `count_from: :lsb`
 
@@ -156,7 +155,9 @@ Those are not the same thing.
 
 ## 5. What `each_set_bit_offset` should return
 
-This is the place where beginners are most likely to get confused.
+This is the place where you are most likely to get confused.
+
+You can also ask, "Why you have to use two different numbering conventions?"
 
 The values returned by `each_set_bit_offset` should be usable as input to `bit_at`.
 
@@ -175,7 +176,7 @@ Thinking of this as a round-trip makes the design easier to understand.
 
 Under `count_from: :msb`, the method should return logical positions in MSB numbering.
 
-For example, if a set bit is at physical position 15:
+For example, if a set-bit is at physical position 15:
 
 ```text
 count_from: :lsb => logical 15
@@ -210,6 +211,26 @@ logical 15 -> physical 0
 
 That is a different bit.
 
+Another way to say the same thing is this: if `each_set_bit_offset` had been designed to take `scan_order:` instead of `count_from:`, it would have encouraged a broken round-trip model:
+
+```ruby
+data.each_set_bit_offset(scan_order: :lsb).all? do |n|
+  data.bit_at(n, count_from: :lsb)
+end
+#=> true
+```
+
+```ruby
+data.each_set_bit_offset(scan_order: :msb).all? do |n|
+  data.bit_at(n, count_from: :msb)
+end
+#=> false
+```
+
+In that hypothetical design, `scan_order: :msb` would naturally mean "walk physical positions from high to low", so the yielded numbers would be physical positions in descending order. But `bit_at(..., count_from: :msb)` interprets its argument as an MSB-side logical position. The same number would no longer refer to the same bit.
+
+So `scan_order:` would have been a poor fit for `each_set_bit_offset` and `set_bit_offsets`. The important property of those methods is not traversal direction. It is that the returned numbers must mean the same thing when passed back to position-based APIs such as `bit_at`.
+
 ## 6. Why `bit_slice` and `bit_splice` are different
 
 `bit_slice` and `bit_splice` are less about logical numbering or traversal direction, and more about:
@@ -223,7 +244,57 @@ Because of that, it is clearer for those methods to use only:
 - physical bit offsets counted from the start
 - ordinary LSB-first packing
 
-## 7. Summary
+## 7. Why `ProposedMethods.md` is grouped the way it is
+
+The categories in [ProposedMethods.md](ProposedMethods.md) are not arbitrary. They group methods by which coordinate model they use.
+
+### Scan
+
+These methods walk across the bit sequence and therefore care about traversal direction.
+
+- `each_bit`
+- `bits`
+- `each_bit_run`
+- `bit_runs`
+
+That is why they use `scan_order:`.
+
+### Position
+
+These methods accept or return bit numbers that a caller can use directly.
+
+- `bit_at`
+- `set_bit`, `clear_bit`, `flip_bit`
+- `each_set_bit_offset`, `set_bit_offsets`
+
+That is why they use `count_from:`. The question is not "which side do we walk from?" but "which bit does this number mean?"
+
+### Flat
+
+These methods operate on physical bit offsets directly.
+
+- `bit_slice`
+- `bit_splice`
+- `bit_run_count`
+
+They do not need `scan_order:` or `count_from:` because they already work in one fixed flat numbering scheme.
+
+### Aggregate
+
+`bit_count` is separated because it reduces the whole bit sequence to one value.
+
+It does not traverse for the caller, does not accept logical positions, and does not operate on a sub-range.
+
+### Bitwise
+
+The bitwise methods treat the string as a whole bitmap and combine or invert it in bulk.
+
+- `bit_not`
+- `bit_and`
+- `bit_or`
+- `bit_xor`
+
+## 8. Summary
 
 ```text
 physical position
@@ -245,22 +316,3 @@ In one sentence:
 scan_order: which side to walk from
 count_from: which bit a number points to
 ```
-
-## 8. Why the names are different
-
-It may seem tempting to make all keyword names follow the same pattern, but `count_from:` and `scan_order:` describe different kinds of things.
-
-`count_from:` is about the meaning of a number supplied by the caller. It answers:
-
-```text
-When the caller says "bit 0", which side are we counting from?
-```
-
-That is why `count_from:` fits methods such as `bit_at`, `set_bit`, and `each_set_bit_offset`.
-
-By contrast, `scan_order:` is about iteration order.
-
-So the naming is intentionally mixed:
-
-- `count_from:` for logical numbering
-- `scan_order:` for traversal order

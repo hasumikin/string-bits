@@ -3,13 +3,6 @@
 This file documents `each_bit_field` and `bit_fields` as well as `Array#mask`, which are implemented and tested
 but intentionally excluded from the main proposal in README.md.
 
-## Bitmask Operation into Array
-
-### Methods for Array
-
-- `mask(bitmap, count_from: :lsb, invert: false) -> Array`
-- `mask!(bitmap, count_from: :lsb, invert: false) -> self`
-
 ## Packed Bit-Field Iteration
 
 ### Reason for deferral

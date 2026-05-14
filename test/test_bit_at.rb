@@ -99,4 +99,9 @@ class TestBitAt < Minitest::Test
   def test_order_negative_raises_argument_error
     assert_raises(ArgumentError) { "\xFF".bit_at(-1, count_from: :msb) }
   end
+
+  def test_unknown_keyword_raises_argument_error
+    err = assert_raises(ArgumentError) { "\xFF".bit_at(0, scan_order: :lsb) }
+    assert_match(/unknown keyword/, err.message)
+  end
 end

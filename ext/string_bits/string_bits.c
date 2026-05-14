@@ -46,6 +46,13 @@ sb_popcount64(uint64_t x)
 static ID id_bracket;
 static VALUE sym_scan_order, sym_count_from, sym_field_order, sym_lsb, sym_msb, sym_invert;
 
+enum sb_kw_flag {
+    SB_KW_SCAN_ORDER = 1 << 0,
+    SB_KW_COUNT_FROM = 1 << 1,
+    SB_KW_FIELD_ORDER = 1 << 2,
+    SB_KW_INVERT = 1 << 3
+};
+
 static inline int
 sb_ctz8(unsigned int x)
 {
@@ -180,6 +187,28 @@ physical_to_logical(long total_bits, long physical, int msb_first)
     return msb_first ? (total_bits - 1 - physical) : physical;
 }
 
+static void
+validate_option_hash(VALUE opts, unsigned allowed)
+{
+    if (NIL_P(opts)) return;
+    Check_Type(opts, T_HASH);
+
+    VALUE keys = rb_funcall(opts, rb_intern("keys"), 0);
+    long len = RARRAY_LEN(keys);
+
+    for (long i = 0; i < len; i++) {
+        VALUE key = RARRAY_AREF(keys, i);
+        if (((allowed & SB_KW_SCAN_ORDER) && key == sym_scan_order) ||
+            ((allowed & SB_KW_COUNT_FROM) && key == sym_count_from) ||
+            ((allowed & SB_KW_FIELD_ORDER) && key == sym_field_order) ||
+            ((allowed & SB_KW_INVERT) && key == sym_invert)) {
+            continue;
+        }
+
+        rb_raise(rb_eArgError, "unknown keyword: %"PRIsVALUE, rb_inspect(key));
+    }
+}
+
 static int
 parse_binary_opt(VALUE opts, VALUE key, const char *name)
 {
@@ -214,6 +243,7 @@ parse_scan_order(int argc, VALUE *argv)
 {
     VALUE opts = Qnil;
     rb_scan_args(argc, argv, "0:", &opts);
+    validate_option_hash(opts, SB_KW_SCAN_ORDER);
     return parse_scan_order_opt(opts);
 }
 
@@ -222,6 +252,7 @@ parse_count_from(int argc, VALUE *argv)
 {
     VALUE opts = Qnil;
     rb_scan_args(argc, argv, "0:", &opts);
+    validate_option_hash(opts, SB_KW_COUNT_FROM);
     return parse_count_from_opt(opts);
 }
 
@@ -255,6 +286,7 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
+    validate_option_hash(opts, SB_KW_COUNT_FROM);
 
     if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
@@ -610,6 +642,7 @@ rb_str_set_bit(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
+    validate_option_hash(opts, SB_KW_COUNT_FROM);
     int msb_first = parse_count_from_opt(opts);
 
     long idx = check_bit_index(self, n, msb_first);
@@ -623,6 +656,7 @@ rb_str_clear_bit(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
+    validate_option_hash(opts, SB_KW_COUNT_FROM);
     int msb_first = parse_count_from_opt(opts);
 
     long idx = check_bit_index(self, n, msb_first);
@@ -636,6 +670,7 @@ rb_str_flip_bit(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
+    validate_option_hash(opts, SB_KW_COUNT_FROM);
     int msb_first = parse_count_from_opt(opts);
 
     long idx = check_bit_index(self, n, msb_first);
@@ -823,6 +858,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
 
     VALUE rest, opts;
     rb_scan_args(argc, argv, "*:", &rest, &opts);
+    validate_option_hash(opts, SB_KW_SCAN_ORDER | SB_KW_FIELD_ORDER);
 
     long num_fields = RARRAY_LEN(rest);
     if (num_fields == 0) {
@@ -908,6 +944,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
 {
     VALUE rest, opts;
     rb_scan_args(argc, argv, "*:", &rest, &opts);
+    validate_option_hash(opts, SB_KW_SCAN_ORDER | SB_KW_FIELD_ORDER);
 
     long num_fields = RARRAY_LEN(rest);
     if (num_fields == 0) {
@@ -1537,6 +1574,7 @@ parse_mask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
 {
     VALUE bitmap, opts;
     rb_scan_args(argc, argv, "1:", &bitmap, &opts);
+    validate_option_hash(opts, SB_KW_COUNT_FROM | SB_KW_INVERT);
 
     int is_integer = rb_integer_type_p(bitmap);
 

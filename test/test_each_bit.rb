@@ -81,4 +81,9 @@ class TestEachBit < Minitest::Test
     count = "\xAA".each_bit.count { |b| b }
     assert_equal 4, count
   end
+
+  def test_unknown_keyword_raises_argument_error
+    err = assert_raises(ArgumentError) { "\xAA".each_bit(count_from: :lsb).to_a }
+    assert_match(/unknown keyword/, err.message)
+  end
 end

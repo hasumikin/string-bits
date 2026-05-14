@@ -115,4 +115,9 @@ class TestArrayMask < Minitest::Test
     # Integer 0b00001101 == "\x0D".b (LSB-first)
     assert_equal DATA.mask(BITMAP_LSB), DATA.mask(0b00001101)
   end
+
+  def test_mask_unknown_keyword_raises_argument_error
+    err = assert_raises(ArgumentError) { DATA.mask(BITMAP_LSB, scan_order: :lsb) }
+    assert_match(/unknown keyword/, err.message)
+  end
 end
