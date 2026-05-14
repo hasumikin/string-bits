@@ -204,3 +204,55 @@ end
 The two versions produce identical results. The `each_bit_field` version eliminates the
 alignment branch entirely, and the yielded integers can be used directly in arithmetic
 without any further unpacking.
+
+---
+
+### Use Case: Parsing mruby `OP_ENTER` Argument Specs
+
+mruby encodes a method/lambda argument specification into the 24-bit operand of `OP_ENTER`.
+In `mrbgems/mruby-compiler/core/codegen.c`, `lambda_body()` builds the operand as:
+
+```c
+/* (24bits = 1:5:5:1:5:5:1:1) */
+a = (noblock ? MRB_ARGS_NOBLOCK() : 0)
+  | MRB_ARGS_REQ(ma)
+  | MRB_ARGS_OPT(oa)
+  | (ra ? MRB_ARGS_REST() : 0)
+  | MRB_ARGS_POST(pa)
+  | MRB_ARGS_KEY(ka, kd)
+  | (ba ? MRB_ARGS_BLOCK() : 0);
+genop_W(s, OP_ENTER, a);
+```
+
+The packed layout is therefore:
+
+```text
+noblock : req : opt : rest : post : key_count : kdict : block
+   1       5     5      1      5        5         1       1
+```
+
+`genop_W()` emits the 24-bit value in big-endian byte order, so the natural way to walk the
+record is from the most significant bit toward the least significant bit. But each field's
+numeric value is still assembled in the ordinary LSB-first way (`MRB_ARGS_REQ(n)` is `n << 18`,
+`MRB_ARGS_OPT(n)` is `n << 13`, and so on).
+
+That makes `OP_ENTER` a concrete example of why `scan_order:` and `field_order:` must be
+separate:
+
+- `scan_order: :msb` because the field sequence is read from the high end of the 24-bit word
+- `field_order: :lsb` because each extracted field should become a normal integer value
+
+In other words, this is not an `:msb / :msb` case. The record is scanned MSB-first, but the
+fields themselves are assembled as ordinary little integers.
+
+```ruby
+# operand_bytes is the 3-byte operand that follows OP_ENTER
+noblock, req, opt, rest, post, key_count, kdict, block =
+  operand_bytes.bit_fields(1, 5, 5, 1, 5, 5, 1, 1,
+                           scan_order: :msb,
+                           field_order: :lsb)
+```
+
+This use case is particularly valuable because it is not about image pixels or network
+packets. It is a real VM/compiler metadata format whose record order and field assembly
+direction differ, which is exactly the situation `field_order:` is meant to express.
