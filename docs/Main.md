@@ -72,7 +72,7 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 
 **Run-length**
 
-- `bit_run_count(pos, bit) -> Integer`
+- `bit_run_count(pos, bit) -> Integer | nil`
 - `each_bit_run(scan_order: :lsb) { |bit, len| } -> self`
      `each_bit_run(scan_order: :lsb) -> Enumerator`
 - `bit_runs(scan_order: :lsb) -> Array`

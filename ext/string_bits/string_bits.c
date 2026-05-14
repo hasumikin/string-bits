@@ -1167,10 +1167,10 @@ byte_by_byte:
     return count < max_run ? count : max_run;
 }
 
-/* String#bit_run_count(pos, bit) -> Integer
+/* String#bit_run_count(pos, bit) -> Integer | nil
  *
  * Returns the length of the consecutive run of `bit` starting at flat
- * position `pos`.  Returns 0 when `pos` is out of range or the bit at `pos`
+ * position `pos`.  Returns nil when `pos` is out of range or the bit at `pos`
  * does not equal `bit`.
  *
  * `bit` accepts 0, 1, false, or true (false/true are aliases for 0/1,
@@ -1205,10 +1205,10 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     }
     long pos     = integer_to_bit_idx(pos_val);
     long src_len = RSTRING_LEN(self);
-    if (pos < 0 || pos >= src_len * 8) return LONG2FIX(0);
+    if (pos < 0 || pos >= src_len * 8) return Qnil;
 
     const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
-    if (((src[pos >> 3] >> (pos & 7)) & 1) != target) return LONG2FIX(0);
+    if (((src[pos >> 3] >> (pos & 7)) & 1) != target) return Qnil;
     return LONG2FIX(count_run_lsb(src, src_len, pos, target));
 }
 

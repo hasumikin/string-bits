@@ -304,9 +304,12 @@ bitmap.bit_splice(40, 40, new_mask)
 
 ---
 
-#### `bit_run_count(pos, bit) -> Integer`
+#### `bit_run_count(pos, bit) -> Integer | nil`
 
-Returns the length of the consecutive run of `bit` starting at flat position `pos`, counting forward toward higher bit indices. Returns 0 when `pos` is out of range or the bit at `pos` does not equal `bit`.
+Returns the length of the consecutive run of `bit` starting at flat position `pos`, counting forward toward higher bit indices.
+
+If a run of `bit` starts at `pos`, returns its length as an `Integer`.
+Otherwise, returns `nil`. This includes both cases where `pos` is out of range and where the bit at `pos` does not equal `bit`.
 
 `bit` accepts `0`, `1`, `false`, or `true` (`false`/`true` are aliases for `0`/`1`, matching the values yielded by `each_bit_run`).
 
@@ -317,22 +320,20 @@ data = "\xF0"   # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
 data.bit_run_count(0, 0)  #=> 4  (4 zeros forward from bit 0)
 data.bit_run_count(4, 1)  #=> 4  (4 ones forward from bit 4)
-data.bit_run_count(0, 1)  #=> 0  (bit 0 is not 1)
+data.bit_run_count(0, 1)  #=> nil  (bit 0 is not 1)
 
 data = "\xFF\xFF\x00"
 data.bit_run_count(0,  1) #=> 16 (16 ones forward from bit 0)
 data.bit_run_count(16, 0) #=> 8  (8 zeros forward from bit 16)
-data.bit_run_count(24, 0) #=> 0  (out of range)
+data.bit_run_count(24, 0) #=> nil  (out of range)
 ```
 
 Building block for position-driven iteration (Gauche style):
 
 ```ruby
 pos = 0
-total = data.bytesize * 8
 runs = []
-while pos < total
-  bit = data.bit_at(pos)
+until (bit = data.bit_at(pos)).nil?
   len = data.bit_run_count(pos, bit)
   runs << [bit, len]
   pos += len

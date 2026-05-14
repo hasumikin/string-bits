@@ -35,20 +35,20 @@ class TestBitCountRun < Minitest::Test
     assert_equal 2, "\xF0".bit_run_count(2, 0)
   end
 
-  def test_bit_mismatch_returns_zero
-    # bit at 0 of 0xFF is 1; asking for 0-run returns 0
-    assert_equal 0, "\xFF".bit_run_count(0, 0)
-    # bit at 0 of 0x00 is 0; asking for 1-run returns 0
-    assert_equal 0, "\x00".bit_run_count(0, 1)
+  def test_bit_mismatch_returns_nil
+    # bit at 0 of 0xFF is 1; asking for 0-run returns nil
+    assert_nil "\xFF".bit_run_count(0, 0)
+    # bit at 0 of 0x00 is 0; asking for 1-run returns nil
+    assert_nil "\x00".bit_run_count(0, 1)
   end
 
-  def test_out_of_range_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(8, 1)
-    assert_equal 0, "\xFF".bit_run_count(100, 0)
+  def test_out_of_range_returns_nil
+    assert_nil "\xFF".bit_run_count(8, 1)
+    assert_nil "\xFF".bit_run_count(100, 0)
   end
 
-  def test_negative_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(-1, 1)
+  def test_negative_returns_nil
+    assert_nil "\xFF".bit_run_count(-1, 1)
   end
 
   def test_bignum_raises_argument_error
@@ -64,7 +64,7 @@ class TestBitCountRun < Minitest::Test
     # true/false are aliases for 1/0, matching each_bit_run yield values
     assert_equal 8, "\xFF".bit_run_count(0, true)
     assert_equal 8, "\x00".bit_run_count(0, false)
-    assert_equal 0, "\xFF".bit_run_count(0, false)
+    assert_nil "\xFF".bit_run_count(0, false)
   end
 
   def test_type_error_on_pos
