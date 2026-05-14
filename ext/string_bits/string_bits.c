@@ -129,7 +129,7 @@ sb_ctzll(uint64_t x)
  * Parameters:
  *   ptr        - pointer to the first byte of the bitmap
  *   bit_index  - flat zero-based position; byte = bit_index/8 from ptr
- *   msb_first  - non-zero: bit 0 of each byte is the MSB (leftmost);
+ *   msb_first  - non-zero: bit 0 of each byte is the MSB (byte order preserved)
  *                zero:     bit 0 of each byte is the LSB (Arrow/hardware convention)
  *
  * Returns 0 or 1.
@@ -177,14 +177,14 @@ check_bit_index(VALUE self, VALUE n, int msb_first)
     if (idx < 0 || idx >= size) {
         rb_raise(rb_eIndexError, "bit index out of range");
     }
-    if (msb_first) idx = size - 1 - idx;
+    if (msb_first) idx = (idx & ~7L) | (7 - (idx & 7L));
     return idx;
 }
 
 static inline long
-physical_to_logical(long total_bits, long physical, int msb_first)
+physical_to_count_from(long physical, int msb_first)
 {
-    return msb_first ? (total_bits - 1 - physical) : physical;
+    return msb_first ? ((physical & ~7L) | (7 - (physical & 7L))) : physical;
 }
 
 static void
@@ -303,7 +303,7 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
     int msb_first = parse_count_from_opt(opts);
 
     if (msb_first) {
-        idx = size - 1 - idx;
+        idx = (idx & ~7L) | (7 - (idx & 7L));
     }
 
     if (test_bit(RSTRING_PTR(self), idx)) {
@@ -421,8 +421,6 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
     int msb_first = parse_count_from(argc, argv);
     long len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
-    long total_bits = len * 8;
-
     if (!msb_first) {
         /* LSB-first: ascending positions 0, 1, 2, ...
          * On little-endian, loading 8 bytes as uint64_t preserves the flat
@@ -458,13 +456,13 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 #endif
     }
     else {
-        /* count_from: :msb => ascending logical positions 0, 1, 2, ... */
-        for (long bi = len - 1; bi >= 0; bi--) {
+        /* count_from: :msb => byte order preserved, bits 7..0 map to logical 0..7 */
+        for (long bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 long physical = bi * 8 + bit;
-                rb_yield(LONG2FIX(physical_to_logical(total_bits, physical, 1)));
+                rb_yield(LONG2FIX(physical_to_count_from(physical, 1)));
                 b ^= (1u << bit);  /* clear highest set bit */
             }
         }
@@ -479,7 +477,6 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
     int msb_first = parse_count_from(argc, argv);
     long len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
-    long total_bits = len * 8;
     int have_block = rb_block_given_p();
 
     VALUE ary;
@@ -533,12 +530,12 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
 #endif
     }
     else {
-        for (long bi = len - 1; bi >= 0; bi--) {
+        for (long bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 long physical = bi * 8 + bit;
-                VALUE pos = LONG2FIX(physical_to_logical(total_bits, physical, 1));
+                VALUE pos = LONG2FIX(physical_to_count_from(physical, 1));
                 have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
                 b ^= (1u << bit);
             }

@@ -70,24 +70,28 @@ This is the simple case:
 
 ### 2-2. `count_from: :msb`
 
-This counts from the far end of the whole bit sequence.
+This preserves byte order, but counts bits inside each byte from MSB to LSB.
 
 ```text
-physical:  15 14 13 12 11 10  9  8   7  6  5  4  3  2  1  0
-logical :   0  1  2  3  4  5  6  7   8  9 10 11 12 13 14 15
+physical:   7  6  5  4  3  2  1  0    15 14 13 12 11 10  9  8
+logical :   0  1  2  3  4  5  6  7     8  9 10 11 12 13 14 15
+           byte[0]                   byte[1]
 ```
 
 In this convention:
 
-- logical position 0 = physical position 15
-- logical position 1 = physical position 14
+- logical position 0 = physical position 7
+- logical position 1 = physical position 6
 - ...
-- logical position 15 = physical position 0
+- logical position 7 = physical position 0
+- logical position 8 = physical position 15
+- ...
+- logical position 15 = physical position 8
 
 In formula form:
 
 ```text
-physical = total_bits - 1 - logical
+physical = (logical & ~7) | (7 - (logical & 7))
 ```
 
 Logical position is not the bit's storage location. It is the number the caller uses under a chosen numbering convention.
@@ -119,7 +123,7 @@ data.bit_at(0, count_from: :msb)
 This reads:
 
 ```text
-logical 0 -> physical 15
+logical 0 -> physical 7
 ```
 
 So the same number `0` can mean a different bit depending on `count_from:`.
@@ -157,7 +161,7 @@ Those are not the same thing.
 
 This is the place where you are most likely to get confused.
 
-You can also ask, "Why you have to use two different numbering conventions?"
+You can also ask, "Why do you have to use two different numbering conventions?"
 
 The values returned by `each_set_bit_offset` should be usable as input to `bit_at`.
 
@@ -176,10 +180,10 @@ Thinking of this as a round-trip makes the design easier to understand.
 
 Under `count_from: :msb`, the method should return logical positions in MSB numbering.
 
-For example, if a set-bit is at physical position 15:
+For example, if a set-bit is at physical position 7:
 
 ```text
-count_from: :lsb => logical 15
+count_from: :lsb => logical 7
 count_from: :msb => logical 0
 ```
 
@@ -206,7 +210,7 @@ data.bit_at(15, count_from: :msb)
 would mean:
 
 ```text
-logical 15 -> physical 0
+logical 15 -> physical 8
 ```
 
 That is a different bit.
@@ -227,7 +231,7 @@ end
 #=> false
 ```
 
-In that hypothetical design, `scan_order: :msb` would naturally mean "walk physical positions from high to low", so the yielded numbers would be physical positions in descending order. But `bit_at(..., count_from: :msb)` interprets its argument as an MSB-side logical position. The same number would no longer refer to the same bit.
+In that hypothetical design, `scan_order: :msb` would naturally mean "walk physical positions from high to low", so the yielded numbers would be physical positions in descending order. But `bit_at(..., count_from: :msb)` interprets its argument using intra-byte MSB-first numbering. The same number would no longer refer to the same bit. For example, `bit_at(15, count_from: :msb)` reads physical position 8 (the LSB of `byte[1]`), not physical position 0.
 
 So `scan_order:` would have been a poor fit for `each_set_bit_offset` and `set_bit_offsets`. The important property of those methods is not traversal direction. It is that the returned numbers must mean the same thing when passed back to position-based APIs such as `bit_at`.
 

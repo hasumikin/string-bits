@@ -57,16 +57,31 @@ Go provides low-level bit operations via `math/bits`:
 
 Go keeps bit manipulation mostly at the primitive level.
 
+### Erlang
+
+Erlang treats binaries as bit-level sequences via its bit syntax, supporting pattern matching and construction at bit granularity:
+
+```erlang
+%% Match the first 3 bits as A and the remaining 5 as B
+<<A:3, B:5>> = <<255>>.          %% A = 7, B = 31
+
+%% Extract one bit, leaving the rest as a bitstring
+<<X:1, Rest/bitstring>> = SomeBits.
+```
+
+Among major languages, Erlang's bit syntax is the closest prior art for this proposal. Bits are exposed directly on the same data type that holds byte buffers, with no intermediate container class. The mechanism differs (pattern matching vs. method calls), but the architectural choice --- bit-level access on the existing byte container --- is the same.
+
 ### Summary
 
-Across languages, bit operations typically fall into two categories:
+Across languages, bit operations typically fall into three categories:
 
 | approach | languages | characteristics |
 |----------|-----------|-----------------|
 | integer-centric | Python, Go | bit operations tied to numeric types |
 | dedicated container | Java, C++, Rust (bitvec) | separate types, explicit APIs |
+| in-buffer bit access | Erlang (bit syntax) | bit operations on the existing byte container |
 
-This proposal takes a different approach: **integrate bit-level operations directly into `String`, the existing byte container.**
+This proposal is closest in spirit to Erlang: **integrate bit-level operations directly into `String`, the existing byte container**, but adapted to Ruby's method-call style.
 
 Compared with the above:
 

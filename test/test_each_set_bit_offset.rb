@@ -14,7 +14,7 @@ class TestEachSetBitOffset < Minitest::Test
   def test_msb_positions
     positions = []
     @data.each_set_bit_offset(count_from: :msb) { |i| positions << i }
-    assert_equal [0, 1, 4, 5, 8, 10, 12, 14], positions
+    assert_equal [0, 2, 4, 6, 8, 9, 12, 13], positions
   end
 
   def test_empty_string
@@ -75,7 +75,7 @@ class TestEachSetBitOffset < Minitest::Test
   end
 
   def test_enumerator_msb
-    assert_equal [0, 1, 4, 5, 8, 10, 12, 14], @data.each_set_bit_offset(count_from: :msb).to_a
+    assert_equal [0, 2, 4, 6, 8, 9, 12, 13], @data.each_set_bit_offset(count_from: :msb).to_a
   end
 
   def test_lsb_positions_match_bit_at
@@ -84,10 +84,10 @@ class TestEachSetBitOffset < Minitest::Test
     end
   end
 
-  def test_msb_is_reverse_of_lsb
+  def test_msb_reverses_bit_numbering_within_each_byte
     msb = @data.each_set_bit_offset(count_from: :msb).to_a
     lsb = @data.each_set_bit_offset(count_from: :lsb).to_a
-    assert_equal msb, lsb.map { |n| 15 - n }.sort
+    assert_equal msb, lsb.map { |n| (n & ~7) | (7 - (n & 7)) }.sort
   end
 
   def test_msb_and_lsb_cover_same_positions

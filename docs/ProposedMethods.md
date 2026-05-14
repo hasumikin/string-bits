@@ -97,14 +97,14 @@ Without a block, equivalent to `each_bit_run(scan_order: scan_order).to_a`. With
 
 Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range.
 
-`count_from: :lsb` (default) counts from the first bit of the first byte. `count_from: :msb` counts from the last bit of the last byte. See [LogicalAndPhysicalPositions.md](./LogicalAndPhysicalPositions.md) for the distinction between physical and logical positions.
+`count_from: :lsb` (default) uses LSB-first numbering within each byte. `count_from: :msb` preserves byte order but uses MSB-first numbering within each byte. See [LogicalAndPhysicalPositions.md](./LogicalAndPhysicalPositions.md) for the distinction between physical and logical positions.
 
 ```ruby
 bitmap = "\xFF\xAA"                 # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
 
 bitmap.bit_at(0)                    #=> true  (bit 0 of byte[0])
-bitmap.bit_at(0, count_from: :msb)  #=> true  (bit 7 of byte[1])
-bitmap.bit_at(8, count_from: :msb)  #=> true  (bit 7 of byte[0])
+bitmap.bit_at(0, count_from: :msb)  #=> true  (bit 7 of byte[0])
+bitmap.bit_at(8, count_from: :msb)  #=> true  (bit 7 of byte[1])
 bitmap.bit_at(100)                  #=> nil
 ```
 
@@ -112,6 +112,15 @@ Apache Arrow idiom --- check if element `i` is valid:
 
 ```ruby
 valid = bitmap.bit_at(i)
+```
+
+RFC / wire-format idiom --- read by the RFC diagram "bit 0" convention (leftmost bit of the first byte):
+
+```ruby
+header = "\xC0\x00\x00\x00"             # IPv4 header byte 0 = 0b11000000
+header.bit_at(0, count_from: :msb)      #=> true   (version field, leading bit)
+header.bit_at(1, count_from: :msb)      #=> true   (version field, second bit)
+header.bit_at(2, count_from: :msb)      #=> false
 ```
 
 ---
@@ -176,7 +185,7 @@ Flat positions of all set-bits:
   byte[1]: b2 b3 b6 b7  =>  positions 10, 11, 14, 15
 
 count_from: :lsb yields:  1,  3,  5,  7, 10, 11, 14, 15
-count_from: :msb yields:  0,  1,  4,  5,  8, 10, 12, 14
+count_from: :msb yields:  0,  2,  4,  6,  8,  9, 12, 13
 ```
 
 The returned positions use the same numbering convention as `bit_at`:

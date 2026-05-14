@@ -15,7 +15,7 @@ class TestSetBitOffsets < Minitest::Test
   end
 
   def test_array_content_msb
-    assert_equal [0, 1, 4, 5, 8, 10, 12, 14], @data.set_bit_offsets(count_from: :msb)
+    assert_equal [0, 2, 4, 6, 8, 9, 12, 13], @data.set_bit_offsets(count_from: :msb)
   end
 
   def test_with_block_yields_same_as_each_set_bit
