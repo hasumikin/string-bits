@@ -712,46 +712,89 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
 
 /* single-bit mutation ----------------------------------------------------- */
 
+enum sb_mutation_op {
+    SB_MUT_SET = 1,
+    SB_MUT_CLEAR = 2,
+    SB_MUT_FLIP = 3
+};
+
 static VALUE
-rb_str_set_bit(int argc, VALUE *argv, VALUE self)
+rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
 {
-    VALUE n, opts;
-    rb_scan_args(argc, argv, "1:", &n, &opts);
+    VALUE target, opts;
+    rb_scan_args(argc, argv, "1:", &target, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     int msb_first = !parse_lsb_first_opt(opts);
 
-    ssize_t idx = check_bit_index(self, n, msb_first);
     rb_str_modify(self);
-    RSTRING_PTR(self)[idx / 8] |= (unsigned char)(1 << (idx % 8));
-    return self;
+    unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);
+
+    if (rb_integer_type_p(target)) {
+        ssize_t idx = check_bit_index(self, target, msb_first);
+        unsigned char mask = (unsigned char)(1u << (idx % 8));
+        switch (op) {
+          case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
+          case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
+          case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
+        }
+        return self;
+    }
+
+    if (rb_obj_is_kind_of(target, rb_cRange)) {
+        ssize_t total_bits = RSTRING_LEN(self) * 8;
+        ssize_t beg, len;
+
+        /* err=0 returns Qnil for out-of-range begin (after negative normalization);
+         * convert that to IndexError to stay consistent with single-bit access. */
+        if (!RTEST(rb_range_beg_len(target, &beg, &len, total_bits, 0))) {
+            rb_raise(rb_eIndexError, "bit range out of range");
+        }
+
+        /* err=0 silently clamps end > total. Detect that and raise instead,
+         * to stay consistent with bit_splice and single-bit mutation. */
+        VALUE rng_end = rb_funcall(target, rb_intern("end"), 0);
+        if (!NIL_P(rng_end)) {
+            ssize_t end_val = integer_to_bit_idx(rng_end);
+            if (end_val < 0) end_val += total_bits;
+            int exclusive = RTEST(rb_funcall(target, rb_intern("exclude_end?"), 0));
+            ssize_t end_excl = exclusive ? end_val : end_val + 1;
+            if (end_excl > total_bits) {
+                rb_raise(rb_eIndexError, "bit range out of range");
+            }
+        }
+
+        for (ssize_t logical = beg; logical < beg + len; logical++) {
+            ssize_t idx = msb_first ? ((logical & ~7L) | (7 - (logical & 7L))) : logical;
+            unsigned char mask = (unsigned char)(1u << (idx % 8));
+            switch (op) {
+              case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
+              case SB_MUT_CLEAR: ptr[idx / 8] &= (unsigned char)~mask; break;
+              case SB_MUT_FLIP:  ptr[idx / 8] ^= mask; break;
+            }
+        }
+        return self;
+    }
+
+    rb_raise(rb_eTypeError, "bit index must be an integer or Range");
+    UNREACHABLE_RETURN(Qnil);
+}
+
+static VALUE
+rb_str_set_bit(int argc, VALUE *argv, VALUE self)
+{
+    return rb_str_mutate_bits(argc, argv, self, SB_MUT_SET);
 }
 
 static VALUE
 rb_str_clear_bit(int argc, VALUE *argv, VALUE self)
 {
-    VALUE n, opts;
-    rb_scan_args(argc, argv, "1:", &n, &opts);
-    validate_option_hash(opts, SB_KW_LSB_FIRST);
-    int msb_first = !parse_lsb_first_opt(opts);
-
-    ssize_t idx = check_bit_index(self, n, msb_first);
-    rb_str_modify(self);
-    RSTRING_PTR(self)[idx / 8] &= (unsigned char)~(1 << (idx % 8));
-    return self;
+    return rb_str_mutate_bits(argc, argv, self, SB_MUT_CLEAR);
 }
 
 static VALUE
 rb_str_flip_bit(int argc, VALUE *argv, VALUE self)
 {
-    VALUE n, opts;
-    rb_scan_args(argc, argv, "1:", &n, &opts);
-    validate_option_hash(opts, SB_KW_LSB_FIRST);
-    int msb_first = !parse_lsb_first_opt(opts);
-
-    ssize_t idx = check_bit_index(self, n, msb_first);
-    rb_str_modify(self);
-    RSTRING_PTR(self)[idx / 8] ^= (unsigned char)(1 << (idx % 8));
-    return self;
+    return rb_str_mutate_bits(argc, argv, self, SB_MUT_FLIP);
 }
 
 /* bulk bitwise ------------------------------------------------------------ */

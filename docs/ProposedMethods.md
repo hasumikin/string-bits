@@ -125,14 +125,15 @@ header.bit_at(2, lsb_first: false)      #=> false
 
 ---
 
-#### `set_bit(n, lsb_first: true) -> self`
+#### `set_bit(n_or_range, lsb_first: true) -> self`
 
-Sets the bit at position `n` to 1.
+Sets one logical bit, or every logical bit in a logical range, to 1.
 
 ```ruby
 bitmap = +"\x00\x00"
 bitmap.set_bit(0)   #=> bit 0 of byte[0] becomes 1  =>  "\x01\x00"
 bitmap.set_bit(9)   #=> bit 1 of byte[1] becomes 1  =>  "\x01\x02"
+bitmap.set_bit(4..11) #=> "\xF0\x0F"
 bitmap.set_bit(100) #=> IndexError
 ```
 
@@ -145,27 +146,29 @@ rows.each_with_index { |row, i| bitmap.set_bit(i) unless row[:value].nil? }
 
 ---
 
-#### `clear_bit(n, lsb_first: true) -> self`
+#### `clear_bit(n_or_range, lsb_first: true) -> self`
 
-Sets the bit at position `n` to 0.
+Sets one logical bit, or every logical bit in a logical range, to 0.
 
 ```ruby
 bitmap = +"\xFF\xFF"
 bitmap.clear_bit(0)   #=> "\xFE\xFF"
 bitmap.clear_bit(8)   #=> "\xFE\xFE"
+bitmap.clear_bit(4..11) #=> "\x0F\xF0"
 bitmap.clear_bit(100) #=> IndexError
 ```
 
 ---
 
-#### `flip_bit(n, lsb_first: true) -> self`
+#### `flip_bit(n_or_range, lsb_first: true) -> self`
 
-Toggles the bit at position `n`.
+Toggles one logical bit, or every logical bit in a logical range.
 
 ```ruby
 bitmap = +"\x00"
 bitmap.flip_bit(3)   #=> "\x08"
 bitmap.flip_bit(3)   #=> "\x00"  (back to original)
+bitmap.flip_bit(4..11) #=> "\xF0\x0F"
 bitmap.flip_bit(100) #=> IndexError
 ```
 

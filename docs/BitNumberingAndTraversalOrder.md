@@ -152,7 +152,7 @@ end
 #=> true, for any X
 ```
 
-This round-trip is what makes the offset-yielding methods useful as building blocks: a consumer that holds an offset can pass it to any of `bit_at`, `set_bit`, `clear_bit`, `flip_bit` without tracking which convention applies.
+This round-trip is what makes the offset-yielding methods useful as building blocks: a consumer that holds an offset can pass it to any of `bit_at`, `set_bit`, `clear_bit`, `flip_bit` without tracking which convention applies. The mutation methods may also accept a `Range`, but it is still interpreted as a range of logical positions under the same `lsb_first:` convention.
 `reverse:` would not give this guarantee because reversing the walk order changes the order in which integers are yielded but not the integers themselves.
 
 ## 6. Why `bit_slice`, `bit_splice`, and `bit_run_count` take neither keyword

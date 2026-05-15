@@ -151,6 +151,30 @@ measure("string_bits: each_bit_run { block }") {
   runs
 }
 
+# --- range mutation ---
+section "range mutation x1000 (64-bit ranges in 100KB bitmap)"
+RANGE_BITMAP = ("\x00" * 12_500).b
+RANGES_1K = Array.new(1_000) do
+  start = rand(RANGE_BITMAP.bytesize * 8 - 64 + 1)
+  start..(start + 63)
+end
+measure("baseline:    range.each { set_bit logic } x1000") {
+  bitmap = RANGE_BITMAP.dup
+  RANGES_1K.each do |range|
+    range.each do |pos|
+      byte_idx = pos >> 3
+      bit_mask = 1 << (pos & 7)
+      bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) | bit_mask)
+    end
+  end
+  bitmap
+}
+measure("string_bits: set_bit(range) x1000") {
+  bitmap = RANGE_BITMAP.dup
+  RANGES_1K.each { |range| bitmap.set_bit(range) }
+  bitmap
+}
+
 # --- Array#mask ---
 section "Array#mask (100K elements, ~50% masked)"
 bm_values = Array.new(100_000) { rand(1000) }

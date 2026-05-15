@@ -45,11 +45,11 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 - `bit_at(n, lsb_first: true) -> true | false | nil` -- read a single bit
 - `bit_count -> Integer` -- count of set-bits (popcount)
 
-**Single-bit mutation**
+**Bit mutation**
 
-- `set_bit(n, lsb_first: true) -> self` -- set bit at n to 1
-- `clear_bit(n, lsb_first: true) -> self` -- set bit at n to 0
-- `flip_bit(n, lsb_first: true) -> self` -- toggle bit at n
+- `set_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 1
+- `clear_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 0
+- `flip_bit(n_or_range, lsb_first: true) -> self` -- toggle one bit or a logical bit range
 
 **Iteration**
 
