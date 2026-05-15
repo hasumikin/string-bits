@@ -35,6 +35,18 @@ class TestBitSlice < Minitest::Test
     assert_equal "\xAA", "\xFF\xAA".bit_slice(-8..-1)
   end
 
+  def test_endless_range_runs_to_end
+    assert_equal "\xAA", "\xFF\xAA".bit_slice(8..)
+  end
+
+  def test_beginless_range_starts_from_zero
+    assert_equal "\xFF\x0A", "\xFF\xAA".bit_slice(..11)
+  end
+
+  def test_nil_nil_range_means_whole_bitmap
+    assert_equal "\xFF\xAA", "\xFF\xAA".bit_slice(nil..nil)
+  end
+
   def test_length_zero_returns_empty_string
     assert_equal "", "\xFF".bit_slice(0, 0)
   end

@@ -109,6 +109,24 @@ class TestBitSplice < Minitest::Test
     assert_equal "\xFF\x00", s
   end
 
+  def test_range_form_endless_range
+    s = +"\xFF\xFF"
+    s.bit_splice(8.., "\x00")
+    assert_equal "\xFF\x00", s
+  end
+
+  def test_range_form_beginless_range
+    s = +"\xFF\xFF"
+    s.bit_splice(..7, "\x00")
+    assert_equal "\x00\xFF", s
+  end
+
+  def test_range_form_nil_nil_range
+    s = +"\xFF\xAA"
+    s.bit_splice(nil..nil, "\x00\x00")
+    assert_equal "\x00\x00", s
+  end
+
   # --- 3-arg range form: bit_splice(range, str, str_range) ---
 
   def test_range_range_form
