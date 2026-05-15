@@ -13,8 +13,8 @@ class TestEachSetBitOffset < Minitest::Test
 
   def test_msb_positions
     positions = []
-    @data.each_set_bit_offset(order: :msb) { |i| positions << i }
-    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], positions
+    @data.each_set_bit_offset(lsb_first: false) { |i| positions << i }
+    assert_equal [0, 2, 4, 6, 8, 9, 12, 13], positions
   end
 
   def test_empty_string
@@ -50,24 +50,24 @@ class TestEachSetBitOffset < Minitest::Test
 
   def test_single_bit_lsb_high
     positions = []
-    "\x80".each_set_bit_offset(order: :lsb) { |i| positions << i }
+    "\x80".each_set_bit_offset(lsb_first: true) { |i| positions << i }
     assert_equal [7], positions
   end
 
   def test_single_bit_lsb_low
     positions = []
-    "\x01".each_set_bit_offset(order: :lsb) { |i| positions << i }
+    "\x01".each_set_bit_offset(lsb_first: true) { |i| positions << i }
     assert_equal [0], positions
   end
 
   def test_returns_enumerator_without_block
     assert_instance_of Enumerator, @data.each_set_bit_offset
-    assert_instance_of Enumerator, @data.each_set_bit_offset(order: :lsb)
+    assert_instance_of Enumerator, @data.each_set_bit_offset(lsb_first: true)
   end
 
   def test_returns_self_with_block
     assert_same @data, @data.each_set_bit_offset {}
-    assert_same @data, @data.each_set_bit_offset(order: :lsb) {}
+    assert_same @data, @data.each_set_bit_offset(lsb_first: true) {}
   end
 
   def test_enumerator_lsb
@@ -75,7 +75,7 @@ class TestEachSetBitOffset < Minitest::Test
   end
 
   def test_enumerator_msb
-    assert_equal [15, 14, 11, 10, 7, 5, 3, 1], @data.each_set_bit_offset(order: :msb).to_a
+    assert_equal [0, 2, 4, 6, 8, 9, 12, 13], @data.each_set_bit_offset(lsb_first: false).to_a
   end
 
   def test_lsb_positions_match_bit_at
@@ -84,16 +84,22 @@ class TestEachSetBitOffset < Minitest::Test
     end
   end
 
-  def test_msb_is_reverse_of_lsb
-    msb = @data.each_set_bit_offset(order: :msb).to_a
-    lsb = @data.each_set_bit_offset(order: :lsb).to_a
-    assert_equal msb, lsb.reverse
+  def test_msb_reverses_bit_numbering_within_each_byte
+    msb = @data.each_set_bit_offset(lsb_first: false).to_a
+    lsb = @data.each_set_bit_offset(lsb_first: true).to_a
+    assert_equal msb, lsb.map { |n| (n & ~7) | (7 - (n & 7)) }.sort
   end
 
   def test_msb_and_lsb_cover_same_positions
     msb = @data.each_set_bit_offset.to_a.sort
-    lsb = @data.each_set_bit_offset(order: :lsb).to_a.sort
+    lsb = @data.each_set_bit_offset(lsb_first: true).to_a.sort
     assert_equal msb, lsb
+  end
+
+  def test_msb_positions_roundtrip_with_bit_at
+    @data.each_set_bit_offset(lsb_first: false) do |n|
+      assert_equal true, @data.bit_at(n, lsb_first: false)
+    end
   end
 
   def test_position_count_matches_set_bit_count

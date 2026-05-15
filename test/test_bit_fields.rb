@@ -77,22 +77,22 @@ class TestBitFields < Minitest::Test
     assert_empty "".bit_fields(8)
   end
 
-  # --- order: :msb ---
+  # --- reverse: true ---
 
   def test_msb_reverses_order_single_field
     data = "\xAA\xBB\xCC\xDD"
-    assert_equal data.bit_fields(8).reverse, data.bit_fields(8, order: :msb)
+    assert_equal data.bit_fields(8).reverse, data.bit_fields(8, reverse: true)
   end
 
   def test_msb_reverses_order_multi_field
     data = "\xAA\xBB\xCC\xDD"
-    assert_equal data.bit_fields(8, 8).reverse, data.bit_fields(8, 8, order: :msb)
+    assert_equal data.bit_fields(8, 8).reverse, data.bit_fields(8, 8, reverse: true)
   end
 
   def test_msb_matches_each_bit_field_to_a
     data = "\xAA\xCC\xFF\x00"
-    assert_equal data.each_bit_field(8, order: :msb).to_a, data.bit_fields(8, order: :msb)
-    assert_equal data.each_bit_field(8, 8, order: :msb).to_a, data.bit_fields(8, 8, order: :msb)
+    assert_equal data.each_bit_field(8, reverse: true).to_a, data.bit_fields(8, reverse: true)
+    assert_equal data.each_bit_field(8, 8, reverse: true).to_a, data.bit_fields(8, 8, reverse: true)
   end
 
   # --- Block form ---
@@ -117,7 +117,7 @@ class TestBitFields < Minitest::Test
 
   def test_block_msb_order
     vals = []
-    "\xAA\xBB\xCC\xDD".bit_fields(8, order: :msb) { |v| vals << v }
+    "\xAA\xBB\xCC\xDD".bit_fields(8, reverse: true) { |v| vals << v }
     assert_equal [0xDD, 0xCC, 0xBB, 0xAA], vals
   end
 
@@ -148,7 +148,12 @@ class TestBitFields < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_fields(4, 65) }
   end
 
-  def test_argument_error_for_invalid_order
-    assert_raises(ArgumentError) { "\xAA".bit_fields(4, order: :foo) }
+  def test_argument_error_for_invalid_reverse
+    assert_raises(ArgumentError) { "\xAA".bit_fields(4, reverse: :foo) }
+  end
+
+  def test_field_order_is_unknown_keyword
+    err = assert_raises(ArgumentError) { "\xAA".bit_fields(4, field_order: :msb) }
+    assert_match(/unknown keyword/, err.message)
   end
 end

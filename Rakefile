@@ -32,10 +32,10 @@ task :benchmark, [:name] => :compile do |_, args|
     Dir["benchmark/*.yaml"].sort
   end
 
-  runs.each do |label, cmd|
-    puts "\n=== #{label.upcase} ==="
-    yamls.each do |yaml|
-      next if File.basename(yaml).start_with?("arrow_red_arrow") && !arrow_ok
+  yamls.each do |yaml|
+    next if File.basename(yaml).start_with?("arrow_red_arrow") && !arrow_ok
+    puts "\n=== #{File.basename(yaml, '.yaml').upcase} ==="
+    runs.each do |label, cmd|
       sh "RUBYLIB=#{File.expand_path('lib')} bundle exec benchmark-driver #{yaml} " \
          "--executables '#{label}::#{cmd}' --output faster"
     end

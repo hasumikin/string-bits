@@ -35,20 +35,20 @@ class TestBitCountRun < Minitest::Test
     assert_equal 2, "\xF0".bit_run_count(2, 0)
   end
 
-  def test_bit_mismatch_returns_zero
-    # bit at 0 of 0xFF is 1; asking for 0-run returns 0
-    assert_equal 0, "\xFF".bit_run_count(0, 0)
-    # bit at 0 of 0x00 is 0; asking for 1-run returns 0
-    assert_equal 0, "\x00".bit_run_count(0, 1)
+  def test_bit_mismatch_returns_nil
+    # bit at 0 of 0xFF is 1; asking for 0-run returns nil
+    assert_nil "\xFF".bit_run_count(0, 0)
+    # bit at 0 of 0x00 is 0; asking for 1-run returns nil
+    assert_nil "\x00".bit_run_count(0, 1)
   end
 
-  def test_out_of_range_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(8, 1)
-    assert_equal 0, "\xFF".bit_run_count(100, 0)
+  def test_out_of_range_returns_nil
+    assert_nil "\xFF".bit_run_count(8, 1)
+    assert_nil "\xFF".bit_run_count(100, 0)
   end
 
-  def test_negative_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(-1, 1)
+  def test_negative_returns_nil
+    assert_nil "\xFF".bit_run_count(-1, 1)
   end
 
   def test_bignum_raises_argument_error
@@ -64,7 +64,7 @@ class TestBitCountRun < Minitest::Test
     # true/false are aliases for 1/0, matching each_bit_run yield values
     assert_equal 8, "\xFF".bit_run_count(0, true)
     assert_equal 8, "\x00".bit_run_count(0, false)
-    assert_equal 0, "\xFF".bit_run_count(0, false)
+    assert_nil "\xFF".bit_run_count(0, false)
   end
 
   def test_type_error_on_pos
@@ -76,55 +76,6 @@ class TestBitCountRun < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_run_count(0, 2) }
     assert_raises(ArgumentError) { "\xFF".bit_run_count(0, "1") }
     assert_raises(ArgumentError) { "\xFF".bit_run_count(0, nil) }
-  end
-
-  def test_arg_error_on_invalid_order
-    assert_raises(ArgumentError) { "\xFF".bit_run_count(0, 1, order: :foo) }
-  end
-
-  # --- order: :msb ---
-
-  def test_msb_all_ones
-    # 0xFF: bit 7 is 1, 8-bit run backward from bit 7
-    assert_equal 8, "\xFF".bit_run_count(7, 1, order: :msb)
-  end
-
-  def test_msb_all_zeros
-    assert_equal 8, "\x00".bit_run_count(7, 0, order: :msb)
-  end
-
-  def test_msb_two_runs
-    # 0xF0 = 11110000: bits 7-4 are 1, bits 3-0 are 0
-    assert_equal 4, "\xF0".bit_run_count(7, 1, order: :msb)  # 4 ones from bit 7 downward
-    assert_equal 4, "\xF0".bit_run_count(3, 0, order: :msb)  # 4 zeros from bit 3 downward
-  end
-
-  def test_msb_cross_byte_run
-    # "\xFF\xFF\x00": bits 15-0 are 1, bits 23-16 are 0
-    # From bit 15 going backward: 16 ones
-    assert_equal 16, "\xFF\xFF\x00".bit_run_count(15, 1, order: :msb)
-    # From bit 23 going backward: 8 zeros
-    assert_equal 8,  "\xFF\xFF\x00".bit_run_count(23, 0, order: :msb)
-  end
-
-  def test_msb_bit_mismatch_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(7, 0, order: :msb)
-    assert_equal 0, "\x00".bit_run_count(7, 1, order: :msb)
-  end
-
-  def test_msb_out_of_range_returns_zero
-    assert_equal 0, "\xFF".bit_run_count(8,  1, order: :msb)
-    assert_equal 0, "\xFF".bit_run_count(-1, 1, order: :msb)
-  end
-
-  def test_msb_matches_each_bit_run_msb
-    data = "\xAA\xCC\xFF\x00\xF0"
-    pos = data.bytesize * 8 - 1
-    data.each_bit_run(order: :msb) do |bit, len|
-      assert_equal len, data.bit_run_count(pos, bit, order: :msb),
-        "bit_run_count(#{pos}, #{bit}, order: :msb) should be #{len}"
-      pos -= len
-    end
   end
 
   # --- cross-byte with long run (exercises the 64-bit word path) ---
@@ -184,8 +135,8 @@ class TestEachBitRun < Minitest::Test
 
   def test_returns_enumerator_without_block
     assert_instance_of Enumerator, "\xFF".each_bit_run
-    assert_instance_of Enumerator, "\xFF".each_bit_run(order: :lsb)
-    assert_instance_of Enumerator, "\xFF".each_bit_run(order: :msb)
+    assert_instance_of Enumerator, "\xFF".each_bit_run(reverse: false)
+    assert_instance_of Enumerator, "\xFF".each_bit_run(reverse: true)
   end
 
   def test_returns_self_with_block
@@ -226,29 +177,29 @@ class TestEachBitRun < Minitest::Test
     assert_equal [[true, 24]], "\xFF\xFF\xFF".each_bit_run.to_a
   end
 
-  # --- order: :msb ---
+  # --- reverse: true ---
 
   def test_msb_all_ones
-    assert_equal [[true, 8]], "\xFF".each_bit_run(order: :msb).to_a
+    assert_equal [[true, 8]], "\xFF".each_bit_run(reverse: true).to_a
   end
 
   def test_msb_two_runs
     # 0xF0: bits 7-4 are 1, bits 3-0 are 0 -- MSB yields from bit 7 downward
-    assert_equal [[true, 4], [false, 4]], "\xF0".each_bit_run(order: :msb).to_a
+    assert_equal [[true, 4], [false, 4]], "\xF0".each_bit_run(reverse: true).to_a
   end
 
   def test_msb_is_reverse_of_lsb_for_consistent_data
     # When all runs have distinct lengths, msb == lsb.reverse
     data = "\xFF\x00"  # two runs of 8
-    lsb = data.each_bit_run(order: :lsb).to_a
-    msb = data.each_bit_run(order: :msb).to_a
+    lsb = data.each_bit_run(reverse: false).to_a
+    msb = data.each_bit_run(reverse: true).to_a
     assert_equal lsb.reverse, msb
   end
 
   # --- argument errors ---
 
-  def test_invalid_order
-    assert_raises(ArgumentError) { "\xFF".each_bit_run(order: :foo) {} }
+  def test_invalid_reverse
+    assert_raises(ArgumentError) { "\xFF".each_bit_run(reverse: :foo) {} }
   end
 
   # --- run lengths sum to total bits ---
@@ -264,15 +215,15 @@ class TestEachBitRun < Minitest::Test
   def test_roundtrip_lsb
     data = "\xAA\xCC\xFF\x00\xF0"
     reconstructed = []
-    data.each_bit_run(order: :lsb) { |bit, len| len.times { reconstructed << bit } }
-    assert_equal data.each_bit(order: :lsb).to_a, reconstructed
+    data.each_bit_run(reverse: false) { |bit, len| len.times { reconstructed << bit } }
+    assert_equal data.each_bit(reverse: false).to_a, reconstructed
   end
 
   def test_roundtrip_msb
     data = "\xAA\xCC\xFF\x00\xF0"
     reconstructed = []
-    data.each_bit_run(order: :msb) { |bit, len| len.times { reconstructed << bit } }
-    assert_equal data.each_bit(order: :msb).to_a, reconstructed
+    data.each_bit_run(reverse: true) { |bit, len| len.times { reconstructed << bit } }
+    assert_equal data.each_bit(reverse: true).to_a, reconstructed
   end
 
   # --- long runs (exercises 64-bit word path) ---
@@ -309,7 +260,7 @@ class TestEachBitRun < Minitest::Test
     # each_bit-based RLE (existing approach)
     expected = []
     current = nil; count = 0
-    data.each_bit(order: :lsb) do |b|
+    data.each_bit(reverse: false) do |b|
       if b == current then count += 1
       else expected << [current, count] unless current.nil?; current = b; count = 1
       end
@@ -317,7 +268,7 @@ class TestEachBitRun < Minitest::Test
     expected << [current, count] unless current.nil?
 
     # each_bit_run (new approach)
-    actual = data.each_bit_run(order: :lsb).to_a
+    actual = data.each_bit_run(reverse: false).to_a
 
     assert_equal expected, actual
   end

@@ -3,7 +3,7 @@ require_relative "test_helper"
 class TestBits < Minitest::Test
   def test_returns_array_without_block
     assert_instance_of Array, "\xAA".bits
-    assert_instance_of Array, "\xAA".bits(order: :lsb)
+    assert_instance_of Array, "\xAA".bits(reverse: false)
   end
 
   def test_array_content_lsb
@@ -11,7 +11,7 @@ class TestBits < Minitest::Test
   end
 
   def test_array_content_msb
-    assert_equal [true, false, true, false, true, false, true, false], "\xAA".bits(order: :msb)
+    assert_equal [true, false, true, false, true, false, true, false], "\xAA".bits(reverse: true)
   end
 
   def test_with_block_yields_same_as_each_bit
@@ -25,13 +25,13 @@ class TestBits < Minitest::Test
   def test_with_block_returns_self
     s = "\xAA"
     assert_same s, s.bits {}
-    assert_same s, s.bits(order: :lsb) {}
+    assert_same s, s.bits(reverse: false) {}
   end
 
   def test_bits_equals_each_bit_to_a
     data = [0b10101010, 0b11001100].pack('C*')
     assert_equal data.each_bit.to_a,              data.bits
-    assert_equal data.each_bit(order: :lsb).to_a, data.bits(order: :lsb)
+    assert_equal data.each_bit(reverse: false).to_a, data.bits(reverse: false)
   end
 
   def test_empty_string

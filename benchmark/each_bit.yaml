@@ -1,0 +1,15 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  DATA = Random.bytes(100_000)
+
+benchmark:
+  baseline: |
+    result = []
+    DATA.each_byte do |byte|
+      8.times { |bit| result << ((byte >> bit) & 1 == 1) }
+    end
+    result
+  string_bits: |
+    DATA.bits

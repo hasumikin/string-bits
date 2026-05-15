@@ -1,11 +1,13 @@
 prelude: |
   $LOAD_PATH.unshift File.expand_path('lib')
   require 'string_bits'
+  srand(42)
   DATA = Random.bytes(1_000_000)
-  BIT_COUNT_TABLE = Array.new(256) { |i| i.to_s(2).count("1") }.freeze
 
 benchmark:
   baseline: |
-    DATA.each_byte.sum { |b| BIT_COUNT_TABLE[b] }
+    result = DATA.dup
+    DATA.bytesize.times { |i| result.setbyte(i, ~DATA.getbyte(i) & 0xFF) }
+    result
   string_bits: |
-    DATA.bit_count
+    DATA.bit_not

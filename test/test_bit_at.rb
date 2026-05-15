@@ -68,7 +68,7 @@ class TestBitAt < Minitest::Test
   end
 
   def test_bignum_raises_argument_error
-    # Bignums cannot be represented as a C long (system range exceeded) -> ArgumentError.
+    # Integers outside the supported index range raise ArgumentError.
     assert_raises(ArgumentError) { "\xFF".bit_at(2**62) }
     assert_raises(ArgumentError) { "\xFF".bit_at(2**63) }
     assert_raises(ArgumentError) { "\xFF".bit_at(2**100) }
@@ -78,25 +78,30 @@ class TestBitAt < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_at(-(2**100)) }
   end
 
-  def test_order
+  def test_lsb_first
     # "\xFF\xAA": byte[0]=0xFF, byte[1]=0xAA (0b10101010)
     data = "\xFF\xAA"
 
     # LSB order (default)
-    assert_equal true,  data.bit_at(0, order: :lsb) # byte[0] bit 0
-    assert_equal false, data.bit_at(8, order: :lsb) # byte[1] bit 0
+    assert_equal true,  data.bit_at(0, lsb_first: true) # byte[0] bit 0
+    assert_equal false, data.bit_at(8, lsb_first: true) # byte[1] bit 0
 
-    # MSB order: 0 is the last bit (byte[1] bit 7), 15 is the first bit (byte[0] bit 0)
-    assert_equal true,  data.bit_at(0, order: :msb)  # byte[1] bit 7 (15 in LSB)
-    assert_equal false, data.bit_at(7, order: :msb)  # byte[1] bit 0 (8 in LSB)
-    assert_equal true,  data.bit_at(8, order: :msb)  # byte[0] bit 7 (7 in LSB)
-    assert_equal true,  data.bit_at(15, order: :msb) # byte[0] bit 0 (0 in LSB)
+    # lsb_first: false preserves byte order and reverses numbering within each byte
+    assert_equal true,  data.bit_at(0, lsb_first: false)  # byte[0] bit 7
+    assert_equal true,  data.bit_at(7, lsb_first: false)  # byte[0] bit 0
+    assert_equal true,  data.bit_at(8, lsb_first: false)  # byte[1] bit 7
+    assert_equal false, data.bit_at(15, lsb_first: false) # byte[1] bit 0
 
     # Out of range
-    assert_nil data.bit_at(16, order: :msb)
+    assert_nil data.bit_at(16, lsb_first: false)
   end
 
-  def test_order_negative_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_at(-1, order: :msb) }
+  def test_lsb_first_negative_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_at(-1, lsb_first: false) }
+  end
+
+  def test_unknown_keyword_raises_argument_error
+    err = assert_raises(ArgumentError) { "\xFF".bit_at(0, reverse: false) }
+    assert_match(/unknown keyword/, err.message)
   end
 end

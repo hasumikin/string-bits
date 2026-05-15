@@ -19,6 +19,34 @@ class TestBitSlice < Minitest::Test
     assert_equal "\xAF", "\xFF\xAA".bit_slice(4, 8)
   end
 
+  def test_range_inclusive_first_byte
+    assert_equal "\xFF", "\xFF\xAA".bit_slice(0..7)
+  end
+
+  def test_range_exclusive_first_byte
+    assert_equal "\xFF", "\xFF\xAA".bit_slice(0...8)
+  end
+
+  def test_range_crossing_byte_boundary
+    assert_equal "\xAF", "\xFF\xAA".bit_slice(4..11)
+  end
+
+  def test_negative_range_counts_from_end
+    assert_equal "\xAA", "\xFF\xAA".bit_slice(-8..-1)
+  end
+
+  def test_endless_range_runs_to_end
+    assert_equal "\xAA", "\xFF\xAA".bit_slice(8..)
+  end
+
+  def test_beginless_range_starts_from_zero
+    assert_equal "\xFF\x0A", "\xFF\xAA".bit_slice(..11)
+  end
+
+  def test_nil_nil_range_means_whole_bitmap
+    assert_equal "\xFF\xAA", "\xFF\xAA".bit_slice(nil..nil)
+  end
+
   def test_length_zero_returns_empty_string
     assert_equal "", "\xFF".bit_slice(0, 0)
   end
@@ -29,6 +57,10 @@ class TestBitSlice < Minitest::Test
 
   def test_offset_beyond_range_returns_nil
     assert_nil "\xFF".bit_slice(9, 1)
+  end
+
+  def test_range_beyond_range_returns_nil
+    assert_nil "\xFF".bit_slice(9..10)
   end
 
   def test_negative_offset_returns_nil
@@ -47,6 +79,12 @@ class TestBitSlice < Minitest::Test
   def test_sub_byte_extraction
     # first 4 bits of "\xAA" (0b10101010): bits 0,1,2,3 = 0,1,0,1 => 0b00001010 = 0x0A
     assert_equal "\x0A", "\xAA".bit_slice(0, 4)
+  end
+
+  def test_unused_high_bits_of_last_byte_are_zeroed
+    result = "\xFF\xFF".bit_slice(0, 9)
+    assert_equal 2, result.bytesize
+    assert_equal "\xFF\x01", result
   end
 
   def test_returns_string_instance
@@ -85,6 +123,12 @@ class TestBitSlice < Minitest::Test
     assert_nil "\xFF".bit_slice(0, :foo)
   end
 
+  def test_non_range_single_argument_returns_nil
+    assert_nil "\xFF".bit_slice("0")
+    assert_nil "\xFF".bit_slice(nil)
+    assert_nil "\xFF".bit_slice(:foo)
+  end
+
   def test_bignum_offset_raises_argument_error
     assert_raises(ArgumentError) { "\xFF".bit_slice(2**62, 4) }
     assert_raises(ArgumentError) { "\xFF".bit_slice(2**63, 4) }
@@ -94,38 +138,4 @@ class TestBitSlice < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_slice(0, 2**63) }
   end
 
-  def test_order
-    # "\xFF\xAA": byte[0]=0xFF, byte[1]=0xAA (0b10101010)
-    data = "\xFF\xAA"
-
-    # LSB order (default)
-    assert_equal "\xFF", data.bit_slice(0, 8, order: :lsb)
-    assert_equal "\xAA", data.bit_slice(8, 8, order: :lsb)
-
-    # MSB order: 0 is the last bit (15 in LSB)
-    # bit_slice(0, 8, order: :msb) should extract bits from the "end" from a MSB perspective.
-    # Logic: Logical 0..7 in MSB -> Physical 15, 14, 13, 12, 11, 10, 9, 8
-    # These are bits of byte[1].
-    assert_equal "\xAA", data.bit_slice(0, 8, order: :msb)
-
-    # bit_slice(8, 8, order: :msb) -> Logical 8..15 in MSB -> Physical 7..0
-    assert_equal "\xFF", data.bit_slice(8, 8, order: :msb)
-
-    # Crossing boundary in MSB
-    # bit_slice(4, 8, order: :msb) -> Logical 4..11 in MSB
-    # Logical 4 -> Physical 11
-    # Logical 11 -> Physical 4
-    # Physical bits 4..11: bits 4..7 of byte[0] (0xF) and bits 0..3 of byte[1] (0xA)
-    # Result should be 0b10101111 = 0xAF (LSB-first String)
-    assert_equal "\xAF", data.bit_slice(4, 8, order: :msb)
-  end
-
-  def test_order_zero_length
-    assert_equal "", "\xFF".bit_slice(0, 0, order: :msb)
-    assert_equal "", "\xFF".bit_slice(8, 0, order: :msb)
-  end
-
-  def test_order_negative_offset_returns_nil
-    assert_nil "\xFF".bit_slice(-1, 4, order: :msb)
-  end
 end

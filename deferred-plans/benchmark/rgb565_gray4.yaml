@@ -37,8 +37,8 @@ benchmark:
   # bit_splice packs the 4-bit result into the output buffer by index.
   string_bits: |
     gray4 = "\x00".b * GRAY4_SIZE
-    DATA.each_bit_field(5, 6, 5, order: :lsb).each_with_index do |(b, g, r), index|
+    DATA.each_bit_field(5, 6, 5, reverse: false).each_with_index do |(b, g, r), index|
       gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
-      gray4.bit_splice(index * 4, 4, gray8 >> 4)
+      gray4.bit_splice(index * 4, 4, [gray8 >> 4].pack('C'))
     end
     gray4

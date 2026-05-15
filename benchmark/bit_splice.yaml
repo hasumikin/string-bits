@@ -1,0 +1,29 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  N      = 100_000
+  # N 4-bit slots; even indices are byte-aligned, odd indices are offset by 4
+  BUF_BYTES = (N * 4 + 7) / 8
+  VALUES    = Array.new(N) { rand(16) }
+  SOURCES   = VALUES.map { |val| [val].pack('C') }
+
+benchmark:
+  baseline: |
+    buf = ("\x00" * BUF_BYTES).b
+    VALUES.each_with_index do |val, i|
+      bit_off  = i * 4
+      byte_idx = bit_off >> 3
+      shift    = bit_off & 7
+      current  = buf.getbyte(byte_idx)
+      if shift == 0
+        buf.setbyte(byte_idx, (current & 0xF0) | (val & 0x0F))
+      else
+        buf.setbyte(byte_idx, (current & 0x0F) | ((val & 0x0F) << 4))
+      end
+    end
+    buf
+  string_bits: |
+    buf = ("\x00" * BUF_BYTES).b
+    SOURCES.each_with_index { |src, i| buf.bit_splice(i * 4, 4, src) }
+    buf

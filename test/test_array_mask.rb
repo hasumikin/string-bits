@@ -13,17 +13,17 @@ class TestArrayMask < Minitest::Test
   end
 
   def test_mask_msb_explicit
-    assert_equal [1, 2, nil, 4], DATA.mask(BITMAP_MSB, order: :msb)
+    assert_equal [1, 2, nil, 4], DATA.mask(BITMAP_MSB, lsb_first: false)
   end
 
   def test_mask_lsb_explicit
-    assert_equal [1, nil, 3, 4], DATA.mask(BITMAP_LSB, order: :lsb)
+    assert_equal [1, nil, 3, 4], DATA.mask(BITMAP_LSB, lsb_first: true)
   end
 
   def test_mask_operation_not
     # :not inverts: where bit=0 -> keep, bit=1 -> nil
     # BITMAP_LSB bits: 0=1,1=0,2=1,3=1 -> inverted: 0=0,1=1,2=0,3=0
-    assert_equal [nil, 2, nil, nil], DATA.mask(BITMAP_LSB, order: :lsb, invert: true)
+    assert_equal [nil, 2, nil, nil], DATA.mask(BITMAP_LSB, lsb_first: true, invert: true)
   end
 
   def test_mask_returns_new_array
@@ -34,7 +34,7 @@ class TestArrayMask < Minitest::Test
 
   def test_mask_bang_modifies_in_place
     ary = [1, 2, 3, 4]
-    result = ary.mask!(BITMAP_MSB, order: :msb)
+    result = ary.mask!(BITMAP_MSB, lsb_first: false)
     assert_same ary, result
     assert_equal [1, 2, nil, 4], ary
   end
@@ -92,15 +92,15 @@ class TestArrayMask < Minitest::Test
   end
 
   def test_mask_integer_order_msb_raises
-    assert_raises(ArgumentError) { DATA.mask(INT_BITMAP, order: :msb) }
+    assert_raises(ArgumentError) { DATA.mask(INT_BITMAP, lsb_first: false) }
   end
 
   def test_mask_integer_negative_raises
     assert_raises(ArgumentError) { DATA.mask(-1) }
   end
 
-  def test_mask_integer_bignum
-    # Bignum: all 16 bits set -> all elements valid
+  def test_mask_large_integer_bitmap
+    # Larger integer bitmap: all 16 bits set -> all elements valid
     data = (1..16).to_a
     assert_equal data, data.mask((1 << 16) - 1)
   end
@@ -114,5 +114,10 @@ class TestArrayMask < Minitest::Test
   def test_mask_integer_matches_string_bitmap
     # Integer 0b00001101 == "\x0D".b (LSB-first)
     assert_equal DATA.mask(BITMAP_LSB), DATA.mask(0b00001101)
+  end
+
+  def test_mask_unknown_keyword_raises_argument_error
+    err = assert_raises(ArgumentError) { DATA.mask(BITMAP_LSB, reverse: false) }
+    assert_match(/unknown keyword/, err.message)
   end
 end

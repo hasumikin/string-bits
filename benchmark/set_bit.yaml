@@ -1,0 +1,21 @@
+prelude: |
+  $LOAD_PATH.unshift File.expand_path('lib')
+  require 'string_bits'
+  srand(42)
+  ID_RANGE     = 2_000_000
+  BITMAP_BYTES = ID_RANGE / 8
+  POSITIONS    = Array.new(1_000_000) { rand(ID_RANGE) }
+
+benchmark:
+  baseline: |
+    bitmap = (0.chr * BITMAP_BYTES).b
+    POSITIONS.each do |pos|
+      byte_idx = pos >> 3
+      bit_mask = 1 << (pos & 7)
+      bitmap.setbyte(byte_idx, bitmap.getbyte(byte_idx) | bit_mask)
+    end
+    bitmap
+  string_bits: |
+    bitmap = (0.chr * BITMAP_BYTES).b
+    POSITIONS.each { |pos| bitmap.set_bit(pos) }
+    bitmap

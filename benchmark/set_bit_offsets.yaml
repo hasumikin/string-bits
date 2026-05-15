@@ -2,9 +2,10 @@ prelude: |
   $LOAD_PATH.unshift File.expand_path('lib')
   require 'string_bits'
   srand(42)
+  # ~50% set bits
   DATA = Array.new(125_000) do
     byte = 0
-    8.times { |i| byte |= (1 << i) if rand < 0.95 }
+    8.times { |i| byte |= (1 << i) if rand < 0.50 }
     byte
   end.pack("C*")
 
@@ -15,4 +16,5 @@ benchmark:
       8.times { |bit| positions << bi * 8 + bit if (byte >> bit) & 1 == 1 }
     end
     positions
-  string_bits: "DATA.set_bit_offsets(order: :lsb)"
+  string_bits: |
+    DATA.set_bit_offsets(lsb_first: true)

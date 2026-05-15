@@ -15,4 +15,5 @@ benchmark:
       8.times { |bit| result[base + bit] = VALUES[base + bit] if byte[bit] == 1 }
     end
     result
-  string_bits: "VALUES.mask(BITMAP, order: :lsb)"
+  string_bits: |
+    VALUES.mask(BITMAP, count_from: :lsb)
