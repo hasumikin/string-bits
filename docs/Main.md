@@ -53,31 +53,32 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 
 **Iteration**
 
-- `each_bit(reverse: false) { |bool| ... } -> self`
-     `each_bit(reverse: false) -> Enumerator` -- yield each bit as true/false
-- `bits(reverse: false) -> Array`
-     `bits(reverse: false) { |bool| ... } -> self` -- Array (or block) form of `each_bit`
-- `each_set_bit_offset(lsb_first: true) { |n| ... } -> self`
-     `each_set_bit_offset(lsb_first: true) -> Enumerator` -- yield position of each set-bit
-- `set_bit_offsets(lsb_first: true) -> Array`
-     `set_bit_offsets(lsb_first: true) { |n| ... } -> self` -- Array (or block) form of `each_set_bit_offset`
+- `each_bit(reverse: false) { |bool| ... } -> self` -- yield each bit as true/false  
+  `each_bit(reverse: false) -> Enumerator`
+- `bits(reverse: false) -> Array` -- Array form of `each_bit`  
+  `bits(reverse: false) { |bool| ... } -> self`
+- `each_set_bit_offset(lsb_first: true) { |n| ... } -> self` -- yield position of each set-bit    
+  `each_set_bit_offset(lsb_first: true) -> Enumerator`
+- `set_bit_offsets(lsb_first: true) -> Array` -- Array form of `each_set_bit_offset`  
+  `set_bit_offsets(lsb_first: true) { |n| ... } -> self`
 
 **Bit-range I/O**
 
-- `bit_slice(bit_offset, bit_length) -> String | nil`
-     `bit_slice(range) -> String | nil` -- extract a sub-sequence of bits (bit-granularity `byteslice`)
-- `bit_splice(bit_index, bit_length, str) -> self`
-     `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
-     `bit_splice(range, str) -> self`
-     `bit_splice(range, str, str_range) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
+- `bit_slice(bit_offset, bit_length) -> String | nil` -- extract a sub-sequence of bits (bit-granularity `byteslice`)  
+  `bit_slice(range) -> String | nil`
+- `bit_splice(bit_index, bit_length, str) -> self`  
+  `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`  
+  `bit_splice(range, str) -> self`  
+  `bit_splice(range, str, str_range) -> self`  
+  -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
 
 **Run-length**
 
 - `bit_run_count(pos, bit) -> Integer | nil` -- length of the run of `bit` starting at pos
-- `each_bit_run(reverse: false) { |bit, len| } -> self`
-     `each_bit_run(reverse: false) -> Enumerator` -- yield `(bit, run_length)` pairs
-- `bit_runs(reverse: false) -> Array`
-     `bit_runs(reverse: false) { |bit, len| } -> self` -- Array (or block) form of `each_bit_run`
+- `each_bit_run(reverse: false) { |bit, len| } -> self` -- yield `(bit, run_length)` pairs  
+  `each_bit_run(reverse: false) -> Enumerator`
+- `bit_runs(reverse: false) -> Array` -- Array form of `each_bit_run`  
+  `bit_runs(reverse: false) { |bit, len| } -> self`
 
 **Bulk bitwise**
 
