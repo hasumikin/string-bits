@@ -57,6 +57,20 @@ Go provides low-level bit operations via `math/bits`:
 
 Go keeps bit manipulation mostly at the primitive level.
 
+### Python (pandas / NumPy)
+
+The Python data analysis stack treats Boolean-valued arrays as packed bit containers. Element-wise comparison produces such an array, the standard bitwise operators compose them, and they are used to filter parallel value arrays:
+
+```python
+a = pd.array([1, 2, 3, 4])
+
+a > 2              # BooleanArray [False, False, True, True]
+(a > 2) & (a < 4)  # BooleanArray [False, False, True, False]
+a[a > 2]           # IntegerArray [3, 4]
+```
+
+The `bit_and` / `bit_or` / `bit_xor` / `bit_not` methods proposed here are the same compositional primitives applied to a `String` viewed as a packed bitmap. Apache Arrow's validity bitmap convention --- supported natively via `lsb_first: true` --- comes from this same design lineage: a packed boolean mask used to express which positions of a parallel array are valid or selected.
+
 ### Erlang
 
 Erlang treats binaries as bit-level sequences via its bit syntax, supporting pattern matching and construction at bit granularity:
@@ -79,6 +93,7 @@ Across languages, bit operations typically fall into three categories:
 |----------|-----------|-----------------|
 | integer-centric | Python, Go | bit operations tied to numeric types |
 | dedicated container | Java, C++, Rust (bitvec) | separate types, explicit APIs |
+| packed boolean masks | Python (pandas / NumPy) | bitmap as a first-class predicate / filter |
 | in-buffer bit access | Erlang (bit syntax) | bit operations on the existing byte container |
 
 This proposal is closest in spirit to Erlang: **integrate bit-level operations directly into `String`, the existing byte container**, but adapted to Ruby's method-call style.

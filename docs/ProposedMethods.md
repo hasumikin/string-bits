@@ -101,7 +101,6 @@ Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of 
 
 ```ruby
 bitmap = "\xFF\xAA"                 # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
-
 bitmap.bit_at(0)                    #=> true  (bit 0 of byte[0])
 bitmap.bit_at(0, lsb_first: false)  #=> true  (bit 7 of byte[0])
 bitmap.bit_at(8, lsb_first: false)  #=> true  (bit 7 of byte[1])
@@ -117,7 +116,7 @@ valid = bitmap.bit_at(i)
 RFC / wire-format idiom --- read by the RFC diagram "bit 0" convention (leftmost bit of the first byte):
 
 ```ruby
-header = "\xC0\x00\x00\x00"             # IPv4 header byte 0 = 0b11000000
+header = "\xC0\x00\x00\x00".b           # IPv4 header byte 0 = 0b11000000
 header.bit_at(0, lsb_first: false)      #=> true   (version field, leading bit)
 header.bit_at(1, lsb_first: false)      #=> true   (version field, second bit)
 header.bit_at(2, lsb_first: false)      #=> false
@@ -130,11 +129,12 @@ header.bit_at(2, lsb_first: false)      #=> false
 Sets one logical bit, or every logical bit in a logical range, to 1.
 
 ```ruby
-bitmap = +"\x00\x00"
-bitmap.set_bit(0)   #=> bit 0 of byte[0] becomes 1  =>  "\x01\x00"
-bitmap.set_bit(9)   #=> bit 1 of byte[1] becomes 1  =>  "\x01\x02"
-bitmap.set_bit(4..11) #=> "\xF0\x0F"
-bitmap.set_bit(100) #=> IndexError
+bitmap = +"\x00\x00".b
+bitmap.set_bit(0)                      #=> bit 0 of byte[0] becomes 1 => "\x01\x00"
+bitmap.set_bit(9)                      #=> bit 1 of byte[1] becomes 1 => "\x01\x02"
+bitmap.set_bit(4..11)                  #=> "\xF0\x0F"
+bitmap.set_bit(6..9, lsb_first: false) #=> "\x03\xC0"
+bitmap.set_bit(100)                    #=> IndexError
 ```
 
 Apache Arrow idiom --- build a validity bitmap incrementally:
@@ -151,11 +151,12 @@ rows.each_with_index { |row, i| bitmap.set_bit(i) unless row[:value].nil? }
 Sets one logical bit, or every logical bit in a logical range, to 0.
 
 ```ruby
-bitmap = +"\xFF\xFF"
-bitmap.clear_bit(0)   #=> "\xFE\xFF"
-bitmap.clear_bit(8)   #=> "\xFE\xFE"
-bitmap.clear_bit(4..11) #=> "\x0F\xF0"
-bitmap.clear_bit(100) #=> IndexError
+bitmap = +"\xFF\xFF".b
+bitmap.clear_bit(0)                      #=> "\xFE\xFF"
+bitmap.clear_bit(8)                      #=> "\xFE\xFE"
+bitmap.clear_bit(4..11)                  #=> "\x0F\xF0"
+bitmap.clear_bit(6..9, lsb_first: false) #=> "\xFC\x3F"
+bitmap.clear_bit(100)                    #=> IndexError
 ```
 
 ---
@@ -165,11 +166,13 @@ bitmap.clear_bit(100) #=> IndexError
 Toggles one logical bit, or every logical bit in a logical range.
 
 ```ruby
-bitmap = +"\x00"
-bitmap.flip_bit(3)   #=> "\x08"
-bitmap.flip_bit(3)   #=> "\x00"  (back to original)
-bitmap.flip_bit(4..11) #=> "\xF0\x0F"
-bitmap.flip_bit(100) #=> IndexError
+bitmap = +"\x00".b
+bitmap.flip_bit(3)                      #=> "\x08"
+bitmap.flip_bit(3)                      #=> "\x00"  (back to original)
+bitmap.flip_bit(4..11)                  #=> "\xF0\x0F"
+bitmap = +"\x00\x00".b
+bitmap.flip_bit(6..9, lsb_first: false) #=> "\x03\xC0"
+bitmap.flip_bit(100)                    #=> IndexError
 ```
 
 ---
@@ -223,7 +226,7 @@ The result length is `ceil(bit_length / 8)` bytes. If `bit_length` is not a mult
 Returns `nil` if `bit_offset` or `bit_length` is not an `Integer`, if either is negative, or if `bit_offset` is beyond the end of the string.
 
 ```ruby
-data = "\xFF\xAA"   # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
+data = "\xFF\xAA".b    # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
 
 data.bit_slice(0, 8)   #=> "\xFF"
 data.bit_slice(8, 8)   #=> "\xAA"
@@ -265,7 +268,7 @@ Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range 
 Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 5-arg form and the 3-arg range form, the exact source sub-range is given explicitly.
 
 ```ruby
-buf = +"\x00\x00"
+buf = +"\x00\x00".b
 
 # 3-arg form: write bits 0-7 of "\xFF" into bits 0-7 of buf
 buf.bit_splice(0, 8, "\xFF")      #=> buf is "\xFF\x00"
@@ -276,7 +279,7 @@ buf.bit_splice(4, 4, "\x0A")     # 0x0A = 0b00001010; bits 0-3 = 1010
 # buf is "\xAF\x00"
 
 # 5-arg form: copy bits 4-7 of src into bits 0-3 of buf
-src = "\xAA"   # 0b10101010
+src = +"\xAA".b   # 0b10101010
 buf.bit_splice(0, 4, src, 4, 4)
 # src bits 4-7 = 1010; written into buf bits 0-3
 
@@ -326,13 +329,13 @@ Otherwise, returns `nil`. This includes both cases where `pos` is out of range a
 Inspired by Gauche Scheme's `bitvector-count-run`.
 
 ```ruby
-data = "\xF0"   # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
+data = "\xF0".b           # 11110000 (LSB-first: bits 0-3 are 0, bits 4-7 are 1)
 
 data.bit_run_count(0, 0)  #=> 4  (4 zeros forward from bit 0)
 data.bit_run_count(4, 1)  #=> 4  (4 ones forward from bit 4)
 data.bit_run_count(0, 1)  #=> nil  (bit 0 is not 1)
 
-data = "\xFF\xFF\x00"
+data = "\xFF\xFF\x00".b
 data.bit_run_count(0,  1) #=> 16 (16 ones forward from bit 0)
 data.bit_run_count(16, 0) #=> 8  (8 zeros forward from bit 16)
 data.bit_run_count(24, 0) #=> nil  (out of range)
