@@ -44,7 +44,7 @@ It is the default because it matches plain byte arithmetic.
 Byte order is preserved (`byte[0]` is still first), but within each byte numbering starts at the MSB:
 
 ```text
-n :   0  1  2  3  4  5  6  7     8  9 10 11 12 13 14 15
+n :   0  1  2  3  4  5  6  7     8  9  10 11 12 13 14 15
 bit:  b7 b6 b5 b4 b3 b2 b1 b0    b7 b6 b5 b4 b3 b2 b1 b0
       ^                          ^
       MSB                        MSB
@@ -60,12 +60,10 @@ In all of those, "bit 0" is the leftmost (most significant) bit of the first byt
 The two conventions disagree on what each integer refers to:
 
 ```ruby
-data = "\xFF\xAA"   # byte[0] = 0xFF (0b11111111), byte[1] = 0xAA (0b10101010)
+data = "\xAA"   # byte[0] = 0b10101010
 
-data.bit_at(0)                    #=> true   (byte[0] bit 0 is set)
-data.bit_at(0, lsb_first: false)  #=> true   (byte[0] bit 7 is set)
-data.bit_at(8, lsb_first: false)  #=> true   (byte[1] bit 7 is set)
-data.bit_at(15, lsb_first: false) #=> false  (byte[1] bit 0 is null)
+data.bit_at(0)                    #=> false (byte[0] bit 0 is null)
+data.bit_at(0, lsb_first: false)  #=> true  (byte[0] bit 7 is set)
 ```
 
 ## 3. Traversal Order --- `reverse:`
@@ -129,14 +127,14 @@ The yielded values are unchanged (`true` / `false` or `(bit, run_length)` pairs)
 
 Because the two are orthogonal, each method takes whichever fits its role:
 
-| methods                                                  | `lsb_first:` | `reverse:` |
-|----------------------------------------------------------|--------------|------------|
-| `bit_at`, `set_bit`, `clear_bit`, `flip_bit`             | yes          | no         |
-| `each_set_bit_offset`, `set_bit_offsets`                 | yes          | no         |
-| `each_bit`, `bits`                                       | no           | yes        |
-| `each_bit_run`, `bit_runs`                               | no           | yes        |
-| `bit_slice`, `bit_splice`, `bit_run_count`               | no           | no         |
-| `bit_count`, `bit_not(!)`, `bit_and(!)`, `bit_or(!)`, `bit_xor(!)` | no | no         |
+| methods                                                            | keyword      |
+|--------------------------------------------------------------------|--------------|
+| `bit_at`, `set_bit`, `clear_bit`, `flip_bit`                       | `lsb_first:` |
+| `each_set_bit_offset`, `set_bit_offsets`                           | `lsb_first:` |
+| `each_bit`, `bits`                                                 | `reverse:`   |
+| `each_bit_run`, `bit_runs`                                         | `reverse:`   |
+| `bit_slice`, `bit_splice`, `bit_run_count`                         | none         |
+| `bit_count`, `bit_not(!)`, `bit_and(!)`, `bit_or(!)`, `bit_xor(!)` | none         |
 
 ## 5. Why `each_set_bit_offset` uses `lsb_first:`, not `reverse:`
 
