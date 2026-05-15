@@ -1,68 +1,23 @@
 # Future Proposal Plan
 
-This file documents `each_bit_field` and `bit_fields` as well as `Array#mask`, which are implemented and tested
-but intentionally excluded from the main proposal in README.md.
+This file documents `each_bit_field` and `bit_fields` as well as `Array#mask`, which are implemented and tested but intentionally excluded from the main proposal in README.md.
 
 ## Packed Bit-Field Iteration
 
 ### Reason for deferral
 
-These methods yield plain `Integer` values, which is a different yield type from all other
-iteration methods in the proposal (which yield `true`/`false` or flat `Integer` positions).
-Introducing a method that yields typed field values decoded from a packed binary layout is
-expected to prolong discussion on the core-ruby-dev mailing list. The rest of the proposal
-is kept clean to reduce that risk.
+These methods yield plain `Integer` values, which is a different yield type from all other iteration methods in the proposal (which yield `true`/`false` or flat `Integer` positions).
+Introducing a method that yields typed field values decoded from a packed binary layout is expected to prolong discussion on the core-ruby-dev mailing list. The rest of the proposal is kept clean to reduce that risk.
 
-#### Open design question: field assembly direction vs. traversal direction
+## `each_bit_field(*bitlens, reverse: false) { |*fields| } -> self`
+## `each_bit_field(*bitlens, reverse: false) -> Enumerator`
 
-For packed field extraction, there are two separate axes:
+Iterates over the string as a sequence of packed bit-field records. Each positional argument specifies the width (in bits) of one field in the record. On each iteration, one value per field is yielded as an `Integer` (LSB-first). Each bitlen must be between 1 and 64. Without a block, returns an `Enumerator`.
 
-- `scan_order:` controls which record is visited first.
-- `field_order:` controls how bits inside each field are assembled into an `Integer`.
+**Integer width and portability.** The 64-bit limit reflects the `uint64_t` extraction used in this CRuby implementation. On mruby, `mrb_int` is either 32-bit (`MRB_INT32`, common on microcontrollers) or 64-bit (`MRB_INT64`). mruby does have a BigInt, but it is an optional gem rather than a core type. For core compatibility --- i.e., without assuming `MRB_USE_BIGINT=1` is defined --- a portable implementation should enforce `bitlen <= MRB_INT_BIT - 1`, yielding at most 31 or 63 bits depending on the build.
+Whether CRuby should adopt the same `SIZEOF_LONG * 8 - 1` cap (63 on 64-bit systems) for cross-implementation consistency is an open question: it would sacrifice the ability to yield a full 64-bit unsigned field, which CRuby can always represent via Bignum.
 
-These are two orthogonal concerns:
-
-| concern                                 | controlled by  |
-|-----------------------------------------|----------------|
-| which record comes first                | `scan_order:`  |
-| how bits within a field form an integer | `field_order:` |
-
-For LSB-first domains (Apache Arrow, ARM registers, BLE, filesystem bitmaps) this is
-correct and requires no extra argument. For MSB-first domains (RFC network headers,
-BitTorrent, PNG sub-byte images), a field's most significant bit occupies the lowest
-bit position in the underlying byte, so LSB-first assembly yields the bit-reversed value.
-`scan_order: :msb` only changes which end of the string iteration starts from; it does not
-solve the MSB-first field problem. That requires `field_order: :msb`.
-
----
-
-## `each_bit_field(*bitlens, scan_order: :lsb, field_order: :lsb) { |*fields| } -> self`
-## `each_bit_field(*bitlens, scan_order: :lsb, field_order: :lsb) -> Enumerator`
-
-Iterates over the string as a sequence of packed bit-field records. Each positional argument
-specifies the width (in bits) of one field in the record. On each iteration, one value per
-field is yielded as an `Integer` (LSB-first). Each bitlen must be between 1 and 64. Without
-a block, returns an `Enumerator`.
-
-**Integer width and portability.** The 64-bit limit reflects the `uint64_t` extraction used
-in this CRuby implementation. On mruby, `mrb_int` is either 32-bit (`MRB_INT32`, common on
-microcontrollers) or 64-bit (`MRB_INT64`). mruby does have a BigInt, but it is an optional
-gem rather than a core type. For core compatibility --- i.e., without assuming
-`MRB_USE_BIGINT=1` is defined --- a portable implementation should enforce
-`bitlen <= MRB_INT_BIT - 1`, yielding at most 31 or 63 bits depending on the build. Whether
-CRuby should adopt the same `SIZEOF_LONG * 8 - 1` cap (63 on 64-bit systems) for
-cross-implementation consistency is an open question: it would sacrifice the ability to yield
-a full 64-bit unsigned field, which CRuby can always represent via Bignum.
-
-Incomplete trailing bits --- when `bytesize * 8` is not a multiple of `sum(bitlens)` --- are
-silently dropped, matching the behavior of `Enumerable#each_slice`.
-
-```
-scan_order:  :lsb (default) -- records yielded left-to-right (ascending bit position)
-scan_order:  :msb           -- records yielded right-to-left (descending bit position)
-field_order: :lsb (default) -- lowest-numbered bit becomes the least significant bit
-field_order: :msb           -- lowest-numbered bit becomes the most significant bit
-```
+Incomplete trailing bits --- when `bytesize * 8` is not a multiple of `sum(bitlens)` --- are silently dropped, matching the behavior of `Enumerable#each_slice`.
 
 ```ruby
 data = "\xAA\xCC"   # 16 bits
@@ -76,14 +31,12 @@ data.each_bit_field(8, 8).to_a
 
 **RGB565 pixel manipulation**
 
-Bit offsets and iteration indices are derived outside the block. `with_index` wraps the
-enumerator form; the bit offset of each record is `iter * step` where `step` is the sum of
-bitlens (16 for 5+6+5).
+Bit offsets and iteration indices are derived outside the block. `with_index` wraps the enumerator form; the bit offset of each record is `iter * step` where `step` is the sum of bitlens (16 for 5+6+5).
 
 ```ruby
 # eg1: Swap R and B channels in an RGB565 buffer
 # RGB565 LSB-first layout: bits 0-4 = blue (5), bits 5-10 = green (6), bits 11-15 = red (5)
-rgb565data.each_bit_field(5, 6, 5, scan_order: :lsb, field_order: :lsb).with_index do |(b, _g, r), iter|
+rgb565data.each_bit_field(5, 6, 5).with_index do |(b, _g, r), iter|
   offset = iter * 16
   rgb565data.bit_splice(offset,      5, r)  # write red into the blue field
   rgb565data.bit_splice(offset + 11, 5, b)  # write blue into the red field
@@ -91,20 +44,18 @@ end
 
 # eg2: Convert RGB565 to 4-bit grayscale
 gray4data = "\x00" * (rgb565data.bytesize / 4)
-rgb565data.each_bit_field(5, 6, 5, scan_order: :lsb, field_order: :lsb).with_index do |(b, g, r), index|
+rgb565data.each_bit_field(5, 6, 5).with_index do |(b, g, r), index|
   gray8 = ((r * 255 / 31) + (g * 255 / 63) + (b * 255 / 31)) / 3
   gray4data.bit_splice(index * 4, 4, gray8 >> 4)
 end
 ```
 
-The half-block rendering pattern used in bitmap fonts and braille displays also benefits: two
-scan-lines are delivered simultaneously so the vertical combination can be computed without
-maintaining external state between calls:
+The half-block rendering pattern used in bitmap fonts and braille displays also benefits: two scan-lines are delivered simultaneously so the vertical combination can be computed without maintaining external state between calls:
 
 ```ruby
 bitlen = 12
 
-data.each_bit_field(bitlen, bitlen, scan_order: :lsb, field_order: :lsb) do |plane0, plane1|
+data.each_bit_field(bitlen, bitlen) do |plane0, plane1|
   line = ""
   i = 0
   while i < bitlen
@@ -120,21 +71,16 @@ data.each_bit_field(bitlen, bitlen, scan_order: :lsb, field_order: :lsb) do |pla
 end
 ```
 
-Each extracted field is a plain `Integer`, so arithmetic on channel values and direct use
-with `bit_splice` require no intermediate conversion or packing step.
+Each extracted field is a plain `Integer`, so arithmetic on channel values and direct use with `bit_splice` require no intermediate conversion or packing step.
 
 ---
 
-### `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) -> Array`
-### `bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) { |*fields| } -> self`
+### `bit_fields(*bitlens, reverse: false) -> Array`
+### `bit_fields(*bitlens, reverse: false) { |*fields| } -> self`
 
-Non-iterator complement of `each_bit_field`. Without a block, collects all records into an
-`Array` and returns it. With a block, yields the same values as `each_bit_field` (without
-`with:`) and returns `self`.
+Non-iterator complement of `each_bit_field`. Without a block, collects all records into an `Array` and returns it. With a block, yields the same values as `each_bit_field` (without `with:`) and returns `self`.
 
-The returned array mirrors `each_bit_field(*bitlens).to_a`: when exactly one bitlen is given
-the array is flat (`Array[Integer]`); when multiple bitlens are given each element is itself
-an `Array` (`Array[Array[Integer]]`).
+The returned array mirrors `each_bit_field(*bitlens).to_a`: when exactly one bitlen is given the array is flat (`Array[Integer]`); when multiple bitlens are given each element is itself an `Array` (`Array[Array[Integer]]`).
 
 ```ruby
 data = "\xAA\xCC"
@@ -149,20 +95,17 @@ pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
 pixel.bit_fields(5, 6, 5)
 #=> [[21, 42, 10]]
 
-data.bit_fields(8, scan_order: :msb)
+data.bit_fields(8, reverse: true)
 #=> [0xCC, 0xAA]          # records in reverse order
 ```
 
-Unlike `each_bit_field`, `bit_fields` returns all records at once, so the caller can
-compute offsets or indices from the returned array directly.
+Unlike `each_bit_field`, `bit_fields` returns all records at once, so the caller can compute offsets or indices from the returned array directly.
 
 ---
 
 ### Use Case: IoT Sensor Telemetry (Non-Byte-Aligned Packed Frames)
 
-Compact binary telemetry protocols pack multiple sensor readings into sub-byte-aligned fields
-to minimize transmission overhead. A typical environmental sensor might encode three
-measurements into a 36-bit frame:
+Compact binary telemetry protocols pack multiple sensor readings into sub-byte-aligned fields to minimize transmission overhead. A typical environmental sensor might encode three measurements into a 36-bit frame:
 
 ```
 bits  0-11 : temperature  (12 bits, 0.1 deg resolution, 0-409.5)
@@ -170,29 +113,26 @@ bits 12-21 : humidity     (10 bits, 0.1% resolution, 0-102.3)
 bits 22-35 : CO2          (14 bits, ppm, 0-16383)
 ```
 
-36 bits = 4.5 bytes, so frames are **not byte-aligned**: even frames start at a byte
-boundary, odd frames start 4 bits into the preceding byte. Extracting fields with pure Ruby
-requires maintaining two separate code paths:
+36 bits = 4.5 bytes, so frames are **not byte-aligned**: even frames start at a byte boundary, odd frames start 4 bits into the preceding byte. Extracting fields with pure Ruby requires maintaining two separate code paths:
 
 ```ruby
 # Pure Ruby: two hard-coded extraction paths for the two alignment cases.
 N_FRAMES.times do |i|
   b = i * 36 >> 3
   if i.even?
-    temp = DATA.getbyte(b)    | ((DATA.getbyte(b+1) & 0x0F) << 8)
+    temp =  DATA.getbyte(b)         | ((DATA.getbyte(b+1) & 0x0F) << 8)
     hum  = (DATA.getbyte(b+1) >> 4) | ((DATA.getbyte(b+2) & 0x3F) << 4)
-    co2  = (DATA.getbyte(b+2) >> 6)  | (DATA.getbyte(b+3) << 2) | ((DATA.getbyte(b+4) & 0x0F) << 10)
+    co2  = (DATA.getbyte(b+2) >> 6) |  (DATA.getbyte(b+3) << 2) | ((DATA.getbyte(b+4) & 0x0F) << 10)
   else
-    temp = (DATA.getbyte(b)   >> 4) |  (DATA.getbyte(b+1) << 4)
-    hum  =  DATA.getbyte(b+2) | ((DATA.getbyte(b+3) & 0x03) << 8)
+    temp = (DATA.getbyte(b) >> 4)   |  (DATA.getbyte(b+1) << 4)
+    hum  =  DATA.getbyte(b+2)       | ((DATA.getbyte(b+3) & 0x03) << 8)
     co2  = (DATA.getbyte(b+3) >> 2) |  (DATA.getbyte(b+4) << 6)
   end
   process(temp, hum, co2)
 end
 ```
 
-`each_bit_field` handles both alignment cases uniformly --- the bit offset arithmetic is
-done once in C, and the block always receives three typed integers:
+`each_bit_field` handles both alignment cases uniformly --- the bit offset arithmetic is done once in C, and the block always receives three typed integers:
 
 ```ruby
 # each_bit_field: alignment is handled transparently.
@@ -201,9 +141,7 @@ DATA.each_bit_field(12, 10, 14) do |temp, hum, co2|
 end
 ```
 
-The two versions produce identical results. The `each_bit_field` version eliminates the
-alignment branch entirely, and the yielded integers can be used directly in arithmetic
-without any further unpacking.
+The two versions produce identical results. The `each_bit_field` version eliminates the alignment branch entirely, and the yielded integers can be used directly in arithmetic without any further unpacking.
 
 ---
 
@@ -231,28 +169,18 @@ noblock : req : opt : rest : post : key_count : kdict : block
    1       5     5      1      5        5         1       1
 ```
 
-`genop_W()` emits the 24-bit value in big-endian byte order, so the natural way to walk the
-record is from the most significant bit toward the least significant bit. But each field's
-numeric value is still assembled in the ordinary LSB-first way (`MRB_ARGS_REQ(n)` is `n << 18`,
-`MRB_ARGS_OPT(n)` is `n << 13`, and so on).
+`genop_W()` emits the 24-bit value in big-endian byte order, so the natural way to walk the record is from the most significant bit toward the least significant bit. But each field's numeric value is still assembled in the ordinary LSB-first way (`MRB_ARGS_REQ(n)` is `n << 18`, `MRB_ARGS_OPT(n)` is `n << 13`, and so on).
 
-That makes `OP_ENTER` a concrete example of why `scan_order:` and `field_order:` must be
-separate:
+That makes `OP_ENTER` a concrete example of why `reverse:` is useful:
 
-- `scan_order: :msb` because the field sequence is read from the high end of the 24-bit word
-- `field_order: :lsb` because each extracted field should become a normal integer value
-
-In other words, this is not an `:msb / :msb` case. The record is scanned MSB-first, but the
-fields themselves are assembled as ordinary little integers.
+- `reverse: true` because the field sequence is read from the high end of the 24-bit word
+- field values themselves still become ordinary little integers
 
 ```ruby
 # operand_bytes is the 3-byte operand that follows OP_ENTER
 noblock, req, opt, rest, post, key_count, kdict, block =
   operand_bytes.bit_fields(1, 5, 5, 1, 5, 5, 1, 1,
-                           scan_order: :msb,
-                           field_order: :lsb)
+                           reverse: true)
 ```
 
-This use case is particularly valuable because it is not about image pixels or network
-packets. It is a real VM/compiler metadata format whose record order and field assembly
-direction differ, which is exactly the situation `field_order:` is meant to express.
+This use case is particularly valuable because it is not about image pixels or network packets. It is a real VM/compiler metadata format whose record order differs from the default left-to-right traversal.

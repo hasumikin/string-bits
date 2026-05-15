@@ -2,10 +2,10 @@
 
 ## Methods for Array
 
-| category | methods       | keyword param | allocates result object |
-|----------|---------------|---------------|-------------------------|
-| Intra-Byte Numbering | `Array#mask!` | `lsb_first:` | no                      |
-| Intra-Byte Numbering | `Array#mask`  | `lsb_first:` | yes (`Array`)           |
+| category             | methods       | keyword param | allocates result object |
+|----------------------|---------------|---------------|-------------------------|
+| Intra-Byte Numbering | `Array#mask!` | `lsb_first:`  | no                      |
+| Intra-Byte Numbering | `Array#mask`  | `lsb_first:`  | yes (`Array`)           |
 
 - `mask(bitmap, lsb_first: true, invert: false) -> Array`
 - `mask!(bitmap, lsb_first: true, invert: false) -> self`

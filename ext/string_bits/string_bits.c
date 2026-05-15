@@ -70,14 +70,12 @@ sb_popcount64(uint64_t x)
 /* ctz / clz helpers for set-bit iteration ---------------------------------- */
 
 static ID id_bracket;
-static VALUE sym_scan_order, sym_reverse, sym_lsb_first, sym_field_order, sym_lsb, sym_msb, sym_invert;
+static VALUE sym_reverse, sym_lsb_first, sym_lsb, sym_msb, sym_invert;
 
 enum sb_kw_flag {
-    SB_KW_SCAN_ORDER = 1 << 0,
-    SB_KW_FIELD_ORDER = 1 << 1,
-    SB_KW_INVERT = 1 << 2,
-    SB_KW_REVERSE = 1 << 3,
-    SB_KW_LSB_FIRST = 1 << 4
+    SB_KW_INVERT = 1 << 0,
+    SB_KW_REVERSE = 1 << 1,
+    SB_KW_LSB_FIRST = 1 << 2
 };
 
 static inline int
@@ -225,10 +223,8 @@ validate_option_hash(VALUE opts, unsigned allowed)
 
     for (ssize_t i = 0; i < len; i++) {
         VALUE key = RARRAY_AREF(keys, i);
-        if (((allowed & SB_KW_SCAN_ORDER) && key == sym_scan_order) ||
-            ((allowed & SB_KW_REVERSE) && key == sym_reverse) ||
+        if (((allowed & SB_KW_REVERSE) && key == sym_reverse) ||
             ((allowed & SB_KW_LSB_FIRST) && key == sym_lsb_first) ||
-            ((allowed & SB_KW_FIELD_ORDER) && key == sym_field_order) ||
             ((allowed & SB_KW_INVERT) && key == sym_invert)) {
             continue;
         }
@@ -250,23 +246,6 @@ parse_bool_opt(VALUE opts, VALUE key, const char *name, int default_value)
 }
 
 static int
-parse_binary_opt(VALUE opts, VALUE key, const char *name)
-{
-    if (NIL_P(opts)) return 0;
-    VALUE order = rb_hash_aref(opts, key);
-    if (NIL_P(order) || order == sym_lsb) return 0;
-    if (order == sym_msb) return 1;
-    rb_raise(rb_eArgError, "%s must be :lsb or :msb", name);
-    return 0;
-}
-
-static int
-parse_scan_order_opt(VALUE opts)
-{
-    return parse_binary_opt(opts, sym_scan_order, "scan_order");
-}
-
-static int
 parse_reverse_opt(VALUE opts)
 {
     return parse_bool_opt(opts, sym_reverse, "reverse", 0);
@@ -276,12 +255,6 @@ static int
 parse_lsb_first_opt(VALUE opts)
 {
     return parse_bool_opt(opts, sym_lsb_first, "lsb_first", 1);
-}
-
-static int
-parse_field_order_opt(VALUE opts)
-{
-    return parse_binary_opt(opts, sym_field_order, "field_order");
 }
 
 static int
@@ -300,17 +273,6 @@ parse_lsb_first(int argc, VALUE *argv)
     rb_scan_args(argc, argv, "0:", &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
     return parse_lsb_first_opt(opts);
-}
-
-static inline uint64_t
-reverse_low_bits_u64(uint64_t v, ssize_t bitlen)
-{
-    uint64_t out = 0;
-    for (ssize_t i = 0; i < bitlen; i++) {
-        out = (out << 1) | (v & 1);
-        v >>= 1;
-    }
-    return out;
 }
 
 /* read -------------------------------------------------------------------- */
@@ -948,18 +910,16 @@ extract_uint64(const unsigned char *src, ssize_t src_len, ssize_t bit_offset, ss
     return val;
 }
 
-/* String#each_bit_field(*bitlens, scan_order: :lsb, field_order: :lsb) -> self
- * String#each_bit_field(*bitlens, scan_order: :lsb, field_order: :lsb) -> Enumerator
+/* String#each_bit_field(*bitlens, reverse: false) -> self
+ * String#each_bit_field(*bitlens, reverse: false) -> Enumerator
  *
  * Iterates over the string as a sequence of packed bit-field records. Each
  * positional argument specifies the width (in bits) of one field in the record.
  * On each iteration, one Integer per field is yielded (LSB-first bit layout).
  * Each bitlen must be in the range 1..64.
  *
- * scan_order:  :lsb (default) -- iterates from the first record forward.
- * scan_order:  :msb           -- iterates from the last complete record backward.
- * field_order: :lsb (default) -- lowest-numbered bit becomes the least significant bit.
- * field_order: :msb           -- lowest-numbered bit becomes the most significant bit.
+ * reverse:     false (default) -- iterates from the first record forward.
+ * reverse:     true            -- iterates from the last complete record backward.
  *
  * Incomplete trailing bits (when bytesize*8 is not a multiple of sum(bitlens))
  * are silently dropped, matching the behavior of Enumerable#each_slice.
@@ -976,7 +936,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
 
     VALUE rest, opts;
     rb_scan_args(argc, argv, "*:", &rest, &opts);
-    validate_option_hash(opts, SB_KW_SCAN_ORDER | SB_KW_FIELD_ORDER);
+    validate_option_hash(opts, SB_KW_REVERSE);
 
     ssize_t num_fields = RARRAY_LEN(rest);
     if (num_fields == 0) {
@@ -1001,8 +961,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
         step += bl;
     }
 
-    int msb_first = parse_scan_order_opt(opts);
-    int field_msb = parse_field_order_opt(opts);
+    int msb_first = parse_reverse_opt(opts);
 
     ssize_t src_len = RSTRING_LEN(self);
     ssize_t total_bits = src_len * 8;
@@ -1017,7 +976,6 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
             ssize_t field_bit = base_bit;
             for (ssize_t f = 0; f < num_fields; f++) {
                 uint64_t val = extract_uint64(src, src_len, field_bit, bitlens[f]);
-                if (field_msb) val = reverse_low_bits_u64(val, bitlens[f]);
                 field_vals[f] = ULL2NUM(val);
                 field_bit += bitlens[f];
             }
@@ -1030,7 +988,6 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
             ssize_t field_bit = base_bit;
             for (ssize_t f = 0; f < num_fields; f++) {
                 uint64_t val = extract_uint64(src, src_len, field_bit, bitlens[f]);
-                if (field_msb) val = reverse_low_bits_u64(val, bitlens[f]);
                 field_vals[f] = ULL2NUM(val);
                 field_bit += bitlens[f];
             }
@@ -1041,8 +998,8 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
-/* String#bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) -> Array
- * String#bit_fields(*bitlens, scan_order: :lsb, field_order: :lsb) { |*fields| } -> self
+/* String#bit_fields(*bitlens, reverse: false) -> Array
+ * String#bit_fields(*bitlens, reverse: false) { |*fields| } -> self
  *
  * Non-iterator complement of each_bit_field.  Without a block, returns an
  * Array of all extracted records.  With a single bitlen the array is flat
@@ -1062,7 +1019,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
 {
     VALUE rest, opts;
     rb_scan_args(argc, argv, "*:", &rest, &opts);
-    validate_option_hash(opts, SB_KW_SCAN_ORDER | SB_KW_FIELD_ORDER);
+    validate_option_hash(opts, SB_KW_REVERSE);
 
     ssize_t num_fields = RARRAY_LEN(rest);
     if (num_fields == 0) {
@@ -1087,8 +1044,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
         step += bl;
     }
 
-    int msb_first = parse_scan_order_opt(opts);
-    int field_msb = parse_field_order_opt(opts);
+    int msb_first = parse_reverse_opt(opts);
 
     ssize_t src_len = RSTRING_LEN(self);
     ssize_t total_bits = src_len * 8;
@@ -1106,7 +1062,6 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
             ssize_t field_bit = base_bit;
             for (ssize_t f = 0; f < num_fields; f++) {
                 uint64_t val = extract_uint64(src, src_len, field_bit, bitlens[f]);
-                if (field_msb) val = reverse_low_bits_u64(val, bitlens[f]);
                 field_vals[f] = ULL2NUM(val);
                 field_bit += bitlens[f];
             }
@@ -1125,7 +1080,6 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
             ssize_t field_bit = base_bit;
             for (ssize_t f = 0; f < num_fields; f++) {
                 uint64_t val = extract_uint64(src, src_len, field_bit, bitlens[f]);
-                if (field_msb) val = reverse_low_bits_u64(val, bitlens[f]);
                 field_vals[f] = ULL2NUM(val);
                 field_bit += bitlens[f];
             }
@@ -1835,10 +1789,8 @@ void
 Init_string_bits(void)
 {
     id_bracket = rb_intern("[]");
-    sym_scan_order  = ID2SYM(rb_intern("scan_order"));
     sym_reverse     = ID2SYM(rb_intern("reverse"));
     sym_lsb_first   = ID2SYM(rb_intern("lsb_first"));
-    sym_field_order = ID2SYM(rb_intern("field_order"));
     sym_lsb         = ID2SYM(rb_intern("lsb"));
     sym_msb         = ID2SYM(rb_intern("msb"));
     sym_invert      = ID2SYM(rb_intern("invert"));
