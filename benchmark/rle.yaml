@@ -23,7 +23,7 @@ benchmark:
     runs
   each_bit: |
     runs = []; current = nil; count = 0
-    DATA.each_bit(scan_order: :lsb) do |b|
+    DATA.each_bit(reverse: false) do |b|
       if b == current
         count += 1
       else
@@ -35,4 +35,4 @@ benchmark:
     runs << [current, count] unless current.nil?
     runs
   each_bit_run: |
-    DATA.each_bit_run(scan_order: :lsb).to_a
+    DATA.each_bit_run(reverse: false).to_a

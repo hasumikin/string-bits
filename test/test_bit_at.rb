@@ -78,30 +78,30 @@ class TestBitAt < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_at(-(2**100)) }
   end
 
-  def test_order
+  def test_lsb_first
     # "\xFF\xAA": byte[0]=0xFF, byte[1]=0xAA (0b10101010)
     data = "\xFF\xAA"
 
     # LSB order (default)
-    assert_equal true,  data.bit_at(0, count_from: :lsb) # byte[0] bit 0
-    assert_equal false, data.bit_at(8, count_from: :lsb) # byte[1] bit 0
+    assert_equal true,  data.bit_at(0, lsb_first: true) # byte[0] bit 0
+    assert_equal false, data.bit_at(8, lsb_first: true) # byte[1] bit 0
 
-    # MSB count_from preserves byte order and reverses numbering within each byte
-    assert_equal true,  data.bit_at(0, count_from: :msb)  # byte[0] bit 7
-    assert_equal true,  data.bit_at(7, count_from: :msb)  # byte[0] bit 0
-    assert_equal true,  data.bit_at(8, count_from: :msb)  # byte[1] bit 7
-    assert_equal false, data.bit_at(15, count_from: :msb) # byte[1] bit 0
+    # lsb_first: false preserves byte order and reverses numbering within each byte
+    assert_equal true,  data.bit_at(0, lsb_first: false)  # byte[0] bit 7
+    assert_equal true,  data.bit_at(7, lsb_first: false)  # byte[0] bit 0
+    assert_equal true,  data.bit_at(8, lsb_first: false)  # byte[1] bit 7
+    assert_equal false, data.bit_at(15, lsb_first: false) # byte[1] bit 0
 
     # Out of range
-    assert_nil data.bit_at(16, count_from: :msb)
+    assert_nil data.bit_at(16, lsb_first: false)
   end
 
-  def test_order_negative_raises_argument_error
-    assert_raises(ArgumentError) { "\xFF".bit_at(-1, count_from: :msb) }
+  def test_lsb_first_negative_raises_argument_error
+    assert_raises(ArgumentError) { "\xFF".bit_at(-1, lsb_first: false) }
   end
 
   def test_unknown_keyword_raises_argument_error
-    err = assert_raises(ArgumentError) { "\xFF".bit_at(0, scan_order: :lsb) }
+    err = assert_raises(ArgumentError) { "\xFF".bit_at(0, reverse: false) }
     assert_match(/unknown keyword/, err.message)
   end
 end

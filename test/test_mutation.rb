@@ -147,29 +147,29 @@ class TestSetClearFlipBit < Minitest::Test
     assert_raises(ArgumentError) { (+"\xFF").flip_bit(2**100) }
   end
 
-  def test_order
+  def test_lsb_first
     # "\x00\x00"
     s = +"\x00\x00"
 
-    # set_bit with count_from: :msb (byte order preserved, numbering reversed within each byte)
-    s.set_bit(0, count_from: :msb) # Physical 7 (bit 7 of s[0])
+    # set_bit with lsb_first: false (byte order preserved, numbering reversed within each byte)
+    s.set_bit(0, lsb_first: false) # Physical 7 (bit 7 of s[0])
     assert_equal "\x80\x00", s
 
-    s.set_bit(8, count_from: :msb) # Physical 15 (bit 7 of s[1])
+    s.set_bit(8, lsb_first: false) # Physical 15 (bit 7 of s[1])
     assert_equal "\x80\x80", s
 
-    # clear_bit with count_from: :msb
-    s.clear_bit(0, count_from: :msb)
+    # clear_bit with lsb_first: false
+    s.clear_bit(0, lsb_first: false)
     assert_equal "\x00\x80", s
 
-    # flip_bit with count_from: :msb
-    s.flip_bit(15, count_from: :msb) # Physical 8 (bit 0 of s[1])
+    # flip_bit with lsb_first: false
+    s.flip_bit(15, lsb_first: false) # Physical 8 (bit 0 of s[1])
     assert_equal "\x00\x81", s
   end
 
-  def test_order_negative_raises_index_error
-    assert_raises(IndexError) { (+"\x00").set_bit(-1, count_from: :msb) }
-    assert_raises(IndexError) { (+"\xFF").clear_bit(-1, count_from: :msb) }
-    assert_raises(IndexError) { (+"\x00").flip_bit(-1, count_from: :msb) }
+  def test_lsb_first_negative_raises_index_error
+    assert_raises(IndexError) { (+"\x00").set_bit(-1, lsb_first: false) }
+    assert_raises(IndexError) { (+"\xFF").clear_bit(-1, lsb_first: false) }
+    assert_raises(IndexError) { (+"\x00").flip_bit(-1, lsb_first: false) }
   end
 end

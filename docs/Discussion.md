@@ -4,7 +4,7 @@
 
 All methods share one flat physical numbering scheme: position `N` lives in `byte[N / 8]` at bit `N % 8` (LSB-first within each byte).
 
-The distinction between physical positions, logical positions, `scan_order:`, and `count_from:` is described in [LogicalAndPhysicalPositions.md](./LogicalAndPhysicalPositions.md). This section focuses only on the design consequences.
+The semantics of `lsb_first:` (intra-byte numbering) and `reverse:` (traversal order) are described in [BitNumberingAndTraversalOrder.md](./BitNumberingAndTraversalOrder.md). This section focuses only on the design consequences.
 
 ### Error behavior for out-of-range bit indices
 
@@ -25,9 +25,9 @@ s.set_bit(2**100)        #=> ArgumentError
 
 ### Naming convention: symmetry with `bytes` / `each_byte`
 
-The method pairs `each_bit` / `bits` and `each_set_bit_offset` / `set_bit_offsets` follow the same basic Ruby idiom as `each_byte` / `bytes`: iterator form plus collected form.
+The method pairs `each_bit`/`bits`, `each_set_bit_offset`/`set_bit_offsets`, and `each_bit_run`/`bit_runs` follow the same basic Ruby idiom as `each_byte` / `bytes`: iterator form plus collected form.
 
-The word "set" is ambiguous in English (verb: mutate; adjective: already-set bits). `each_set_bit_offset` makes the iterative meaning explicit, while `set_bit_offsets` names the returned positions.
+If `each_set_bit_offset`/`set_bit_offsets` feel too long, `each_setbit_offset`/`setbit_offsets` are reasonable shorter alternatives --- dropping one underscore makes the name read as three chunks (`each`/`setbit`/`offset`) instead of four.
 
 ### Why extend `String` rather than introduce a new class?
 
@@ -43,18 +43,38 @@ This proposal is intentionally limited to bit-level operations on an already mat
 
 | domain                                     | native bit ordering                                | native via         |
 |--------------------------------------------|----------------------------------------------------|--------------------|
-| Apache Arrow validity bitmap               | LSB-first (element i = byte[i/8] bit i%8)          | `count_from: :lsb` |
-| ext4 block bitmap                          | LSB-first                                          | `count_from: :lsb` |
-| RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | `count_from: :msb` |
-| PNG 1/2/4-bit scanlines                    | MSB = leftmost pixel                               | `count_from: :msb` |
+| Apache Arrow validity bitmap               | LSB-first (element i = byte[i/8] bit i%8)          | `lsb_first: true`  |
+| ext4 block bitmap                          | LSB-first                                          | `lsb_first: true`  |
+| RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | `lsb_first: false` |
+| PNG 1/2/4-bit scanlines                    | MSB = leftmost pixel                               | `lsb_first: false` |
 
-The table is limited to cases where bit numbering is directly relevant to a byte buffer held in memory. Both LSB-first and intra-byte MSB-first layouts are directly addressable through `count_from: :lsb` and `count_from: :msb`.
+The table is limited to cases where bit numbering is directly relevant to a byte buffer held in memory. Both LSB-first and intra-byte MSB-first layouts are directly addressable through `lsb_first: true` and `lsb_first: false`.
+
+### Why `lsb_first: true` is the default
+
+Both numbering conventions are first-class, but `lsb_first: true` is the default for the following reasons.
+
+**Consistency with Ruby's existing bit access.** `Integer#[]` already uses LSB-first numbering:
+
+```ruby
+5[0]   #=> 1   (5 = 0b101, bit 0 is the LSB)
+5[1]   #=> 0
+5[2]   #=> 1
+```
+
+A user who reaches for `String#bit_at` after using `Integer#[]` should not need to relearn which end is bit 0.
+
+**In-memory bitmaps overwhelmingly use LSB-first.** Apache Arrow validity bitmaps, ext4 block bitmaps, Roaring bitmap containers, and most hardware peripheral register documentation (ARM Cortex-M, STM32, x86 control registers) all number bits from the LSB. This is the convention any caller building or reading an in-memory bitmap is likely to expect.
+
+**The mapping formula is simpler.** LSB-first maps directly to byte arithmetic: `n = byte_index * 8 + bit_in_byte`. MSB-first needs an extra `7 - bit_in_byte` flip. Making the simpler form the default reduces the cognitive cost of the common case.
+
+**MSB-first is mostly a display convention.** The MSB-first formats --- RFC network headers, PNG scanlines, BitTorrent bitfield messages --- use MSB-first as a *diagram or transmission* convention, where bits are read left-to-right. The in-memory layout itself is byte-addressable and bit-order-agnostic; the choice between LSB and MSB only matters when bits are presented to a human or transmitted with a documented numbering.
 
 ### Apache Arrow Compatibility
 
 Apache Arrow validity bitmaps use the same flat LSB-first layout: element `i` is stored in `byte[i / 8]` at bit `i % 8`.
 
-`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(count_from: :lsb)` yields valid element indices in ascending order.
+`bit_at(i)` maps directly to Arrow element index `i`. `each_set_bit_offset(lsb_first: true)` yields valid element indices in ascending order.
 
 #### Arrow IPC serialization
 

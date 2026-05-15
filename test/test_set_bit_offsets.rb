@@ -7,7 +7,7 @@ class TestSetBitOffsets < Minitest::Test
 
   def test_returns_array_without_block
     assert_instance_of Array, @data.set_bit_offsets
-    assert_instance_of Array, @data.set_bit_offsets(count_from: :lsb)
+    assert_instance_of Array, @data.set_bit_offsets(lsb_first: true)
   end
 
   def test_array_content_lsb
@@ -15,7 +15,7 @@ class TestSetBitOffsets < Minitest::Test
   end
 
   def test_array_content_msb
-    assert_equal [0, 2, 4, 6, 8, 9, 12, 13], @data.set_bit_offsets(count_from: :msb)
+    assert_equal [0, 2, 4, 6, 8, 9, 12, 13], @data.set_bit_offsets(lsb_first: false)
   end
 
   def test_with_block_yields_same_as_each_set_bit
@@ -28,12 +28,12 @@ class TestSetBitOffsets < Minitest::Test
 
   def test_with_block_returns_self
     assert_same @data, @data.set_bit_offsets {}
-    assert_same @data, @data.set_bit_offsets(count_from: :lsb) {}
+    assert_same @data, @data.set_bit_offsets(lsb_first: true) {}
   end
 
   def test_set_bit_offsets_equals_each_set_bit_to_a
     assert_equal @data.each_set_bit_offset.to_a,              @data.set_bit_offsets
-    assert_equal @data.each_set_bit_offset(count_from: :msb).to_a, @data.set_bit_offsets(count_from: :msb)
+    assert_equal @data.each_set_bit_offset(lsb_first: false).to_a, @data.set_bit_offsets(lsb_first: false)
   end
 
   def test_empty_string

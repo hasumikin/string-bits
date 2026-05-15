@@ -30,7 +30,7 @@ The immediate goal is agreement on the overall direction and feedback on which s
 
 Presenting the full menu matters because some design questions only become clear at that level:
 
-- bit numbering / traversal keywords (`count_from:` and `scan_order:`)
+- bit numbering / traversal keywords (`lsb_first:` and `reverse:`)
 - whether those keywords should exist consistently across methods
 - naming symmetry such as `bits` / `each_bit`
 - behavior for out-of-range bit indices
@@ -42,25 +42,25 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 
 **Read-only access**
 
-- `bit_at(n, count_from: :lsb) -> true | false | nil` -- read a single bit
+- `bit_at(n, lsb_first: true) -> true | false | nil` -- read a single bit
 - `bit_count -> Integer` -- count of set-bits (popcount)
 
 **Single-bit mutation**
 
-- `set_bit(n, count_from: :lsb) -> self` -- set bit at n to 1
-- `clear_bit(n, count_from: :lsb) -> self` -- set bit at n to 0
-- `flip_bit(n, count_from: :lsb) -> self` -- toggle bit at n
+- `set_bit(n, lsb_first: true) -> self` -- set bit at n to 1
+- `clear_bit(n, lsb_first: true) -> self` -- set bit at n to 0
+- `flip_bit(n, lsb_first: true) -> self` -- toggle bit at n
 
 **Iteration**
 
-- `each_bit(scan_order: :lsb) { |bool| ... } -> self`
-     `each_bit(scan_order: :lsb) -> Enumerator` -- yield each bit as true/false
-- `bits(scan_order: :lsb) -> Array`
-     `bits(scan_order: :lsb) { |bool| ... } -> self` -- Array (or block) form of `each_bit`
-- `each_set_bit_offset(count_from: :lsb) { |n| ... } -> self`
-     `each_set_bit_offset(count_from: :lsb) -> Enumerator` -- yield position of each set-bit
-- `set_bit_offsets(count_from: :lsb) -> Array`
-     `set_bit_offsets(count_from: :lsb) { |n| ... } -> self` -- Array (or block) form of `each_set_bit_offset`
+- `each_bit(reverse: false) { |bool| ... } -> self`
+     `each_bit(reverse: false) -> Enumerator` -- yield each bit as true/false
+- `bits(reverse: false) -> Array`
+     `bits(reverse: false) { |bool| ... } -> self` -- Array (or block) form of `each_bit`
+- `each_set_bit_offset(lsb_first: true) { |n| ... } -> self`
+     `each_set_bit_offset(lsb_first: true) -> Enumerator` -- yield position of each set-bit
+- `set_bit_offsets(lsb_first: true) -> Array`
+     `set_bit_offsets(lsb_first: true) { |n| ... } -> self` -- Array (or block) form of `each_set_bit_offset`
 
 **Bit-range I/O**
 
@@ -74,10 +74,10 @@ https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 **Run-length**
 
 - `bit_run_count(pos, bit) -> Integer | nil` -- length of the run of `bit` starting at pos
-- `each_bit_run(scan_order: :lsb) { |bit, len| } -> self`
-     `each_bit_run(scan_order: :lsb) -> Enumerator` -- yield `(bit, run_length)` pairs
-- `bit_runs(scan_order: :lsb) -> Array`
-     `bit_runs(scan_order: :lsb) { |bit, len| } -> self` -- Array (or block) form of `each_bit_run`
+- `each_bit_run(reverse: false) { |bit, len| } -> self`
+     `each_bit_run(reverse: false) -> Enumerator` -- yield `(bit, run_length)` pairs
+- `bit_runs(reverse: false) -> Array`
+     `bit_runs(reverse: false) { |bit, len| } -> self` -- Array (or block) form of `each_bit_run`
 
 **Bulk bitwise**
 
@@ -99,5 +99,5 @@ Detailed benchmarks, discussion, and prior art:
 - Proposed methods: https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 - Benchmark: https://github.com/hasumikin/string_bits/blob/master/docs/Benchmark.md
 - Discussion: https://github.com/hasumikin/string_bits/blob/master/docs/Discussion.md
-- Logical vs physical positions: https://github.com/hasumikin/string_bits/blob/master/docs/LogicalAndPhysicalPositions.md
+- Bit numbering and traversal order: https://github.com/hasumikin/string_bits/blob/master/docs/BitNumberingAndTraversalOrder.md
 - Prior art: https://github.com/hasumikin/string_bits/blob/master/docs/PriorArt.md

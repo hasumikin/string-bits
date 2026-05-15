@@ -110,10 +110,10 @@ measure("baseline:    manual byte loop + conditional push") {
   positions
 }
 measure("string_bits: each_set_bit_offset { block }  (yields Fixnum)") {
-  validity.each_set_bit_offset(count_from: :lsb) { |_i| }
+  validity.each_set_bit_offset(lsb_first: true) { |_i| }
 }
 measure("string_bits: set_bit_offsets  (-> Array)") {
-  validity.set_bit_offsets(count_from: :lsb)
+  validity.set_bit_offsets(lsb_first: true)
 }
 
 # --- RLE ---
@@ -137,7 +137,7 @@ measure("baseline:    each_byte + bit loop") {
 }
 measure("string_bits: each_bit { block }") {
   runs = []; current = nil; count = 0
-  RLE_DATA.each_bit(scan_order: :lsb) do |b|
+  RLE_DATA.each_bit(reverse: false) do |b|
     if b == current then count += 1
     else runs << [current, count] unless current.nil?; current = b; count = 1
     end
@@ -164,8 +164,8 @@ measure("baseline:    each_byte + byte[bit] loop") {
   result
 }
 measure("string_bits: mask  (returns new Array)") {
-  bm_values.mask(bm_bitmap, count_from: :lsb)
+  bm_values.mask(bm_bitmap, lsb_first: true)
 }
 measure("string_bits: mask! (in-place, needs dup)") {
-  bm_values.dup.mask!(bm_bitmap, count_from: :lsb)
+  bm_values.dup.mask!(bm_bitmap, lsb_first: true)
 }

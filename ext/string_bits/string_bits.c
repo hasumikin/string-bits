@@ -70,13 +70,14 @@ sb_popcount64(uint64_t x)
 /* ctz / clz helpers for set-bit iteration ---------------------------------- */
 
 static ID id_bracket;
-static VALUE sym_scan_order, sym_count_from, sym_field_order, sym_lsb, sym_msb, sym_invert;
+static VALUE sym_scan_order, sym_reverse, sym_lsb_first, sym_field_order, sym_lsb, sym_msb, sym_invert;
 
 enum sb_kw_flag {
     SB_KW_SCAN_ORDER = 1 << 0,
-    SB_KW_COUNT_FROM = 1 << 1,
-    SB_KW_FIELD_ORDER = 1 << 2,
-    SB_KW_INVERT = 1 << 3
+    SB_KW_FIELD_ORDER = 1 << 1,
+    SB_KW_INVERT = 1 << 2,
+    SB_KW_REVERSE = 1 << 3,
+    SB_KW_LSB_FIRST = 1 << 4
 };
 
 static inline int
@@ -225,7 +226,8 @@ validate_option_hash(VALUE opts, unsigned allowed)
     for (ssize_t i = 0; i < len; i++) {
         VALUE key = RARRAY_AREF(keys, i);
         if (((allowed & SB_KW_SCAN_ORDER) && key == sym_scan_order) ||
-            ((allowed & SB_KW_COUNT_FROM) && key == sym_count_from) ||
+            ((allowed & SB_KW_REVERSE) && key == sym_reverse) ||
+            ((allowed & SB_KW_LSB_FIRST) && key == sym_lsb_first) ||
             ((allowed & SB_KW_FIELD_ORDER) && key == sym_field_order) ||
             ((allowed & SB_KW_INVERT) && key == sym_invert)) {
             continue;
@@ -233,6 +235,18 @@ validate_option_hash(VALUE opts, unsigned allowed)
 
         rb_raise(rb_eArgError, "unknown keyword: %"PRIsVALUE, rb_inspect(key));
     }
+}
+
+static int
+parse_bool_opt(VALUE opts, VALUE key, const char *name, int default_value)
+{
+    if (NIL_P(opts)) return default_value;
+    VALUE value = rb_hash_aref(opts, key);
+    if (NIL_P(value)) return default_value;
+    if (value == Qtrue) return 1;
+    if (value == Qfalse) return 0;
+    rb_raise(rb_eArgError, "%s must be true or false", name);
+    return default_value;
 }
 
 static int
@@ -253,9 +267,15 @@ parse_scan_order_opt(VALUE opts)
 }
 
 static int
-parse_count_from_opt(VALUE opts)
+parse_reverse_opt(VALUE opts)
 {
-    return parse_binary_opt(opts, sym_count_from, "count_from");
+    return parse_bool_opt(opts, sym_reverse, "reverse", 0);
+}
+
+static int
+parse_lsb_first_opt(VALUE opts)
+{
+    return parse_bool_opt(opts, sym_lsb_first, "lsb_first", 1);
 }
 
 static int
@@ -265,21 +285,21 @@ parse_field_order_opt(VALUE opts)
 }
 
 static int
-parse_scan_order(int argc, VALUE *argv)
+parse_reverse(int argc, VALUE *argv)
 {
     VALUE opts = Qnil;
     rb_scan_args(argc, argv, "0:", &opts);
-    validate_option_hash(opts, SB_KW_SCAN_ORDER);
-    return parse_scan_order_opt(opts);
+    validate_option_hash(opts, SB_KW_REVERSE);
+    return parse_reverse_opt(opts);
 }
 
 static int
-parse_count_from(int argc, VALUE *argv)
+parse_lsb_first(int argc, VALUE *argv)
 {
     VALUE opts = Qnil;
     rb_scan_args(argc, argv, "0:", &opts);
-    validate_option_hash(opts, SB_KW_COUNT_FROM);
-    return parse_count_from_opt(opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    return parse_lsb_first_opt(opts);
 }
 
 static inline uint64_t
@@ -295,7 +315,7 @@ reverse_low_bits_u64(uint64_t v, ssize_t bitlen)
 
 /* read -------------------------------------------------------------------- */
 
-/* String#bit_at(n, count_from: :lsb) -> true or false
+/* String#bit_at(n, lsb_first: true) -> true or false
  *
  * bit_at uses flat/Arrow convention: byte_index = n/8 from start, bit = n%8 from LSB
  * e.g. "\xAA\xCC": bit 0..7 live in byte[0]=0xAA, bit 8..15 live in byte[1]=0xCC
@@ -312,7 +332,7 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
-    validate_option_hash(opts, SB_KW_COUNT_FROM);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
 
     if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
@@ -326,7 +346,7 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
         return Qnil;
     }
 
-    int msb_first = parse_count_from_opt(opts);
+    int msb_first = !parse_lsb_first_opt(opts);
 
     if (msb_first) {
         idx = (idx & ~7L) | (7 - (idx & 7L));
@@ -390,7 +410,7 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int msb_first = parse_scan_order(argc, argv);
+    int msb_first = parse_reverse(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
@@ -417,7 +437,7 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_bits(int argc, VALUE *argv, VALUE self)
 {
-    int msb_first = parse_scan_order(argc, argv);
+    int msb_first = parse_reverse(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     ssize_t total_bits = len * 8;
@@ -454,7 +474,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int msb_first = parse_count_from(argc, argv);
+    int msb_first = !parse_lsb_first(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     if (!msb_first) {
@@ -493,7 +513,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 #endif
     }
     else {
-        /* count_from: :msb => byte order preserved, bits 7..0 map to logical 0..7 */
+        /* lsb_first: false => byte order preserved, bits 7..0 map to logical 0..7 */
         for (ssize_t bi = 0; bi < len; bi++) {
             unsigned int b = str[bi];
             while (b != 0) {
@@ -511,7 +531,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
 {
-    int msb_first = parse_count_from(argc, argv);
+    int msb_first = !parse_lsb_first(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     int have_block = rb_block_given_p();
@@ -697,8 +717,8 @@ rb_str_set_bit(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
-    validate_option_hash(opts, SB_KW_COUNT_FROM);
-    int msb_first = parse_count_from_opt(opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int msb_first = !parse_lsb_first_opt(opts);
 
     ssize_t idx = check_bit_index(self, n, msb_first);
     rb_str_modify(self);
@@ -711,8 +731,8 @@ rb_str_clear_bit(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
-    validate_option_hash(opts, SB_KW_COUNT_FROM);
-    int msb_first = parse_count_from_opt(opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int msb_first = !parse_lsb_first_opt(opts);
 
     ssize_t idx = check_bit_index(self, n, msb_first);
     rb_str_modify(self);
@@ -725,8 +745,8 @@ rb_str_flip_bit(int argc, VALUE *argv, VALUE self)
 {
     VALUE n, opts;
     rb_scan_args(argc, argv, "1:", &n, &opts);
-    validate_option_hash(opts, SB_KW_COUNT_FROM);
-    int msb_first = parse_count_from_opt(opts);
+    validate_option_hash(opts, SB_KW_LSB_FIRST);
+    int msb_first = !parse_lsb_first_opt(opts);
 
     ssize_t idx = check_bit_index(self, n, msb_first);
     rb_str_modify(self);
@@ -1270,8 +1290,8 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
     return SSIZET2NUM(count_run_lsb(src, src_len, pos, target));
 }
 
-/* String#each_bit_run(scan_order: :lsb) { |bit, len| } -> self
- * String#each_bit_run(scan_order: :lsb) -> Enumerator
+/* String#each_bit_run(reverse: false) { |bit, len| } -> self
+ * String#each_bit_run(reverse: false) -> Enumerator
  *
  * Yields (bit, run_length) pairs for each consecutive run of identical bits.
  * Run-length boundary detection and counting happen entirely in C, replacing
@@ -1281,8 +1301,8 @@ rb_str_bit_run_count(int argc, VALUE *argv, VALUE self)
  * each_bit.  For structured data (sparse validity bitmaps, sensor bursts) the
  * ratio is proportional to the average run length.
  *
- * scan_order: :lsb (default) iterates from bit 0 forward.
- * scan_order: :msb iterates from the last bit downward.
+ * reverse: false (default) iterates from bit 0 forward.
+ * reverse: true iterates from the last bit downward.
  *
  * Porting to Ruby Core:
  *   1. Move to string.c; register in Init_String().
@@ -1293,7 +1313,7 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int msb_first = parse_scan_order(argc, argv);
+    int msb_first = parse_reverse(argc, argv);
     ssize_t src_len  = RSTRING_LEN(self);
     if (src_len == 0) return self;
 
@@ -1323,8 +1343,8 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
     return self;
 }
 
-/* String#bit_runs(scan_order: :lsb) -> Array
- * String#bit_runs(scan_order: :lsb) { |bit, len| } -> self
+/* String#bit_runs(reverse: false) -> Array
+ * String#bit_runs(reverse: false) { |bit, len| } -> self
  *
  * Non-iterator complement of each_bit_run. Without a block, collects all
  * (bit, run_length) pairs into an Array and returns it. With a block,
@@ -1338,7 +1358,7 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
 {
-    int msb_first  = parse_scan_order(argc, argv);
+    int msb_first  = parse_reverse(argc, argv);
     ssize_t src_len   = RSTRING_LEN(self);
     int have_block = rb_block_given_p();
 
@@ -1615,7 +1635,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
  * but are NOT part of the current core proposal (see FUTURE_PROPOSAL_PLAN.md).
  */
 /*
- * parse_mask_kwargs: extract bitmap, count_from:, and invert: from method arguments.
+ * parse_mask_kwargs: extract bitmap, lsb_first:, and invert: from method arguments.
  *
  * Porting to Ruby Core:
  *   1. Keep this as a `static` helper in array.c — it is only called by
@@ -1629,18 +1649,18 @@ parse_mask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
 {
     VALUE bitmap, opts;
     rb_scan_args(argc, argv, "1:", &bitmap, &opts);
-    validate_option_hash(opts, SB_KW_COUNT_FROM | SB_KW_INVERT);
+    validate_option_hash(opts, SB_KW_LSB_FIRST | SB_KW_INVERT);
 
     int is_integer = rb_integer_type_p(bitmap);
 
     if (!is_integer) Check_Type(bitmap, T_STRING);
 
-    int msb_first  = parse_count_from_opt(opts);
+    int msb_first  = !parse_lsb_first_opt(opts);
     int invert     = 0; /* default false */
 
     if (msb_first && is_integer) {
         rb_raise(rb_eArgError,
-                 "count_from: :msb is not supported for Integer bitmap; "
+                 "lsb_first: false is not supported for Integer bitmap; "
                  "Integer bits are always LSB-first");
     }
 
@@ -1773,7 +1793,8 @@ Init_string_bits(void)
 {
     id_bracket = rb_intern("[]");
     sym_scan_order  = ID2SYM(rb_intern("scan_order"));
-    sym_count_from  = ID2SYM(rb_intern("count_from"));
+    sym_reverse     = ID2SYM(rb_intern("reverse"));
+    sym_lsb_first   = ID2SYM(rb_intern("lsb_first"));
     sym_field_order = ID2SYM(rb_intern("field_order"));
     sym_lsb         = ID2SYM(rb_intern("lsb"));
     sym_msb         = ID2SYM(rb_intern("msb"));
