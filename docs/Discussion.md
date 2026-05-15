@@ -41,12 +41,12 @@ This proposal is intentionally limited to bit-level operations on an already mat
 
 ### Bit ordering across domains
 
-| domain | native bit ordering | native via |
-|--------|---------------------|------------|
-| Apache Arrow validity bitmap | LSB-first (element i = byte[i/8] bit i%8) | `count_from: :lsb` |
-| ext4 block bitmap | LSB-first | `count_from: :lsb` |
+| domain                                     | native bit ordering                                | native via         |
+|--------------------------------------------|----------------------------------------------------|--------------------|
+| Apache Arrow validity bitmap               | LSB-first (element i = byte[i/8] bit i%8)          | `count_from: :lsb` |
+| ext4 block bitmap                          | LSB-first                                          | `count_from: :lsb` |
 | RFC-style network headers (IPv4, TCP, DNS) | bit 0 = MSB of first byte (RFC diagram convention) | `count_from: :msb` |
-| PNG 1/2/4-bit scanlines | MSB = leftmost pixel | `count_from: :msb` |
+| PNG 1/2/4-bit scanlines                    | MSB = leftmost pixel                               | `count_from: :msb` |
 
 The table is limited to cases where bit numbering is directly relevant to a byte buffer held in memory. Both LSB-first and intra-byte MSB-first layouts are directly addressable through `count_from: :lsb` and `count_from: :msb`.
 

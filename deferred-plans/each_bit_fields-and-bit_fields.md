@@ -22,9 +22,9 @@ For packed field extraction, there are two separate axes:
 
 These are two orthogonal concerns:
 
-| concern | controlled by |
-|---------|--------------|
-| which record comes first | `scan_order:` |
+| concern                                 | controlled by  |
+|-----------------------------------------|----------------|
+| which record comes first                | `scan_order:`  |
 | how bits within a field form an integer | `field_order:` |
 
 For LSB-first domains (Apache Arrow, ARM registers, BLE, filesystem bitmaps) this is
