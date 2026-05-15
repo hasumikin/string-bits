@@ -147,30 +147,30 @@ sb_ctzll(uint64_t x)
  *   1. Move this declaration to include/ruby/internal/string.h (or
  *      internal/string.h for a non-public internal API).
  *   2. Remove the `static inline` storage class; declare as:
- *        static inline int rb_str_get_bit(const char *ptr, ssize_t bit_index, int msb_first);
+ *        static inline int rb_str_get_bit(const char *ptr, ssize_t bit_index, int lsb_first);
  *      in the header so both string.c and array.c can include it.
  *   3. Replace all call sites in string.c and array.c accordingly.
  *
  * Parameters:
  *   ptr        - pointer to the first byte of the bitmap
  *   bit_index  - flat zero-based position; byte = bit_index/8 from ptr
- *   msb_first  - non-zero: bit 0 of each byte is the MSB (byte order preserved)
- *                zero:     bit 0 of each byte is the LSB (Arrow/hardware convention)
+ *   lsb_first  - non-zero: bit 0 of each byte is the LSB (Arrow/hardware convention)
+ *                zero:     bit 0 of each byte is the MSB (byte order preserved)
  *
  * Returns 0 or 1.
  */
 static inline int
-rb_str_get_bit(const char *ptr, ssize_t bit_index, int msb_first)
+rb_str_get_bit(const char *ptr, ssize_t bit_index, int lsb_first)
 {
     ssize_t byte_index = bit_index / 8;
-    int bit_offset = msb_first ? (7 - bit_index % 8) : (bit_index % 8);
+    int bit_offset = lsb_first ? (bit_index % 8) : (7 - bit_index % 8);
     return (ptr[byte_index] >> bit_offset) & 1;
 }
 
 static inline int
 test_bit(const char *ptr, ssize_t bit_index)
 {
-    return rb_str_get_bit(ptr, bit_index, 0);
+    return rb_str_get_bit(ptr, bit_index, 1);
 }
 
 /* Convert a Ruby Integer to a ssize_t bit index.
@@ -192,7 +192,7 @@ integer_to_bit_idx(VALUE n)
 }
 
 static ssize_t
-check_bit_index(VALUE self, VALUE n, int msb_first)
+check_bit_index(VALUE self, VALUE n, int lsb_first)
 {
     if (!rb_integer_type_p(n)) {
         rb_raise(rb_eTypeError, "bit index must be an integer");
@@ -202,14 +202,14 @@ check_bit_index(VALUE self, VALUE n, int msb_first)
     if (idx < 0 || idx >= size) {
         rb_raise(rb_eIndexError, "bit index out of range");
     }
-    if (msb_first) idx = (idx & ~7L) | (7 - (idx & 7L));
+    if (!lsb_first) idx = (idx & ~7L) | (7 - (idx & 7L));
     return idx;
 }
 
 static inline ssize_t
-physical_to_count_from(ssize_t physical, int msb_first)
+physical_to_count_from(ssize_t physical, int lsb_first)
 {
-    return msb_first ? ((physical & ~7L) | (7 - (physical & 7L))) : physical;
+    return lsb_first ? physical : ((physical & ~7L) | (7 - (physical & 7L)));
 }
 
 static void
@@ -308,9 +308,9 @@ rb_str_bit_at(int argc, VALUE *argv, VALUE self)
         return Qnil;
     }
 
-    int msb_first = !parse_lsb_first_opt(opts);
+    int lsb_first = parse_lsb_first_opt(opts);
 
-    if (msb_first) {
+    if (!lsb_first) {
         idx = (idx & ~7L) | (7 - (idx & 7L));
     }
 
@@ -372,11 +372,11 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int msb_first = parse_reverse(argc, argv);
+    int reverse = parse_reverse(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
 
-    if (msb_first) {
+    if (reverse) {
         for (ssize_t i = len - 1; i >= 0; i--) {
             unsigned char b = str[i];
             for (int j = 7; j >= 0; j--) {
@@ -399,7 +399,7 @@ rb_str_each_bit(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_bits(int argc, VALUE *argv, VALUE self)
 {
-    int msb_first = parse_reverse(argc, argv);
+    int reverse = parse_reverse(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     ssize_t total_bits = len * 8;
@@ -407,7 +407,7 @@ rb_str_bits(int argc, VALUE *argv, VALUE self)
 
     VALUE ary = have_block ? Qnil : rb_ary_new_capa(total_bits);
 
-    if (msb_first) {
+    if (reverse) {
         for (ssize_t i = len - 1; i >= 0; i--) {
             unsigned char b = str[i];
             for (int j = 7; j >= 0; j--) {
@@ -436,10 +436,10 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int msb_first = !parse_lsb_first(argc, argv);
+    int lsb_first = parse_lsb_first(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
-    if (!msb_first) {
+    if (lsb_first) {
         /* LSB-first: ascending positions 0, 1, 2, ...
          * On little-endian, loading 8 bytes as a uint64_t preserves the flat
          * LSB-first bit numbering: word bit 0 == position 0, bit 63 == 63.
@@ -481,7 +481,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 ssize_t physical = bi * 8 + bit;
-                rb_yield(SSIZET2NUM(physical_to_count_from(physical, 1)));
+                rb_yield(SSIZET2NUM(physical_to_count_from(physical, 0)));
                 b ^= (1u << bit);  /* clear highest set bit */
             }
         }
@@ -493,7 +493,7 @@ rb_str_each_set_bit_offset(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
 {
-    int msb_first = !parse_lsb_first(argc, argv);
+    int lsb_first = parse_lsb_first(argc, argv);
     ssize_t len = RSTRING_LEN(self);
     const unsigned char *str = (const unsigned char *)RSTRING_PTR(self);
     int have_block = rb_block_given_p();
@@ -517,7 +517,7 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
         ary = rb_ary_new_capa(count);
     }
 
-    if (!msb_first) {
+    if (lsb_first) {
 #if SB_LITTLE_ENDIAN
         ssize_t n_words = len >> 3;
         for (ssize_t wi = 0; wi < n_words; wi++) {
@@ -557,7 +557,7 @@ rb_str_set_bit_offsets(int argc, VALUE *argv, VALUE self)
             while (b != 0) {
                 int bit = sb_highest_bit8(b);
                 ssize_t physical = bi * 8 + bit;
-                VALUE pos = SSIZET2NUM(physical_to_count_from(physical, 1));
+                VALUE pos = SSIZET2NUM(physical_to_count_from(physical, 0));
                 have_block ? rb_yield(pos) : rb_ary_push(ary, pos);
                 b ^= (1u << bit);
             }
@@ -686,13 +686,13 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
     VALUE target, opts;
     rb_scan_args(argc, argv, "1:", &target, &opts);
     validate_option_hash(opts, SB_KW_LSB_FIRST);
-    int msb_first = !parse_lsb_first_opt(opts);
+    int lsb_first = parse_lsb_first_opt(opts);
 
     rb_str_modify(self);
     unsigned char *ptr = (unsigned char *)RSTRING_PTR(self);
 
     if (rb_integer_type_p(target)) {
-        ssize_t idx = check_bit_index(self, target, msb_first);
+        ssize_t idx = check_bit_index(self, target, lsb_first);
         unsigned char mask = (unsigned char)(1u << (idx % 8));
         switch (op) {
           case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
@@ -726,7 +726,7 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
         }
 
         for (ssize_t logical = beg; logical < beg + len; logical++) {
-            ssize_t idx = msb_first ? ((logical & ~7L) | (7 - (logical & 7L))) : logical;
+            ssize_t idx = lsb_first ? logical : ((logical & ~7L) | (7 - (logical & 7L)));
             unsigned char mask = (unsigned char)(1u << (idx % 8));
             switch (op) {
               case SB_MUT_SET:   ptr[idx / 8] |= mask; break;
@@ -961,7 +961,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
         step += bl;
     }
 
-    int msb_first = parse_reverse_opt(opts);
+    int reverse = parse_reverse_opt(opts);
 
     ssize_t src_len = RSTRING_LEN(self);
     ssize_t total_bits = src_len * 8;
@@ -969,7 +969,7 @@ rb_str_each_bit_field(int argc, VALUE *argv, VALUE self)
 
     VALUE *field_vals = ALLOCA_N(VALUE, num_fields);
 
-    if (!msb_first) {
+    if (!reverse) {
         for (ssize_t iter = 0; iter < iterations; iter++) {
             ssize_t base_bit = iter * step;
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
@@ -1044,7 +1044,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
         step += bl;
     }
 
-    int msb_first = parse_reverse_opt(opts);
+    int reverse = parse_reverse_opt(opts);
 
     ssize_t src_len = RSTRING_LEN(self);
     ssize_t total_bits = src_len * 8;
@@ -1055,7 +1055,7 @@ rb_str_bit_fields(int argc, VALUE *argv, VALUE self)
 
     VALUE *field_vals = ALLOCA_N(VALUE, num_fields);
 
-    if (!msb_first) {
+    if (!reverse) {
         for (ssize_t iter = 0; iter < iterations; iter++) {
             ssize_t base_bit = iter * step;
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
@@ -1310,13 +1310,13 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
 {
     RETURN_ENUMERATOR(self, argc, argv);
 
-    int msb_first = parse_reverse(argc, argv);
+    int reverse = parse_reverse(argc, argv);
     ssize_t src_len  = RSTRING_LEN(self);
     if (src_len == 0) return self;
 
     ssize_t total_bits = src_len * 8;
 
-    if (!msb_first) {
+    if (!reverse) {
         ssize_t pos = 0;
         while (pos < total_bits) {
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
@@ -1355,7 +1355,7 @@ rb_str_each_bit_run(int argc, VALUE *argv, VALUE self)
 static VALUE
 rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
 {
-    int msb_first  = parse_reverse(argc, argv);
+    int reverse = parse_reverse(argc, argv);
     ssize_t src_len   = RSTRING_LEN(self);
     int have_block = rb_block_given_p();
 
@@ -1364,7 +1364,7 @@ rb_str_bit_runs(int argc, VALUE *argv, VALUE self)
     ssize_t total_bits = src_len * 8;
     VALUE result    = have_block ? Qnil : rb_ary_new();
 
-    if (!msb_first) {
+    if (!reverse) {
         ssize_t pos = 0;
         while (pos < total_bits) {
             const unsigned char *src = (const unsigned char *)RSTRING_PTR(self);
@@ -1642,7 +1642,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
  */
 static void
 parse_mask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
-                     int *msb_first_out, int *invert_out, int *is_integer_out)
+                     int *lsb_first_out, int *invert_out, int *is_integer_out)
 {
     VALUE bitmap, opts;
     rb_scan_args(argc, argv, "1:", &bitmap, &opts);
@@ -1652,10 +1652,10 @@ parse_mask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
 
     if (!is_integer) Check_Type(bitmap, T_STRING);
 
-    int msb_first  = !parse_lsb_first_opt(opts);
+    int lsb_first  = parse_lsb_first_opt(opts);
     int invert     = 0; /* default false */
 
-    if (msb_first && is_integer) {
+    if (!lsb_first && is_integer) {
         rb_raise(rb_eArgError,
                  "lsb_first: false is not supported for Integer bitmap; "
                  "Integer bits are always LSB-first");
@@ -1669,7 +1669,7 @@ parse_mask_kwargs(int argc, VALUE *argv, VALUE *bitmap_out,
     }
 
     *bitmap_out     = bitmap;
-    *msb_first_out  = msb_first;
+    *lsb_first_out  = lsb_first;
     *invert_out     = invert;
     *is_integer_out = is_integer;
 }
@@ -1696,8 +1696,8 @@ static VALUE
 rb_ary_mask(int argc, VALUE *argv, VALUE self)
 {
     VALUE bitmap;
-    int msb_first, invert, is_integer;
-    parse_mask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
+    int lsb_first, invert, is_integer;
+    parse_mask_kwargs(argc, argv, &bitmap, &lsb_first, &invert, &is_integer);
 
     ssize_t ary_len = RARRAY_LEN(self);
     const VALUE *src = RARRAY_CONST_PTR(self);
@@ -1719,7 +1719,7 @@ rb_ary_mask(int argc, VALUE *argv, VALUE self)
                      "bitmap too short: need %ld bytes for %ld elements, got %ld",
                      needed, ary_len, bmp_len);
 
-        if (msb_first) {
+        if (!lsb_first) {
             for (ssize_t i = 0; i < ary_len; i++) {
                 int bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
                 if (invert) bit = !bit;
@@ -1742,8 +1742,8 @@ static VALUE
 rb_ary_mask_bang(int argc, VALUE *argv, VALUE self)
 {
     VALUE bitmap;
-    int msb_first, invert, is_integer;
-    parse_mask_kwargs(argc, argv, &bitmap, &msb_first, &invert, &is_integer);
+    int lsb_first, invert, is_integer;
+    parse_mask_kwargs(argc, argv, &bitmap, &lsb_first, &invert, &is_integer);
 
     ssize_t ary_len = RARRAY_LEN(self);
     rb_ary_modify(self);
@@ -1764,7 +1764,7 @@ rb_ary_mask_bang(int argc, VALUE *argv, VALUE self)
                      "bitmap too short: need %ld bytes for %ld elements, got %ld",
                      needed, ary_len, bmp_len);
 
-        if (msb_first) {
+        if (!lsb_first) {
             for (ssize_t i = 0; i < ary_len; i++) {
                 int bit = (bmp[i >> 3] >> (7 - (i & 7))) & 1;
                 if (invert) bit = !bit;
