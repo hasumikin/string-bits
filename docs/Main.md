@@ -30,8 +30,7 @@ The immediate goal is agreement on the overall direction and feedback on which s
 
 Presenting the full menu matters because some design questions only become clear at that level:
 
-- bit numbering / traversal keywords (`lsb_first:` and `reverse:`)
-- whether those keywords should exist consistently across methods
+- bit numbering keyword (`lsb_first:`) and its consistent application across methods
 - naming symmetry such as `bits` / `each_bit`
 - behavior for out-of-range bit indices
 
@@ -40,47 +39,43 @@ Presenting the full menu matters because some design questions only become clear
 Full prototype and documentation:
 https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 
-**Read-only access**
+**Read**
 
 - `bit_at(n, lsb_first: true) -> true | false | nil` -- read a single bit
 - `bit_count -> Integer` -- count of set-bits (popcount)
+- `bit_run_count(pos, bit, lsb_first: true) -> Integer | nil` -- length of the run of `bit` starting at pos
 
-**Bit mutation**
+**Iterator**
 
-- `set_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 1
-- `clear_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 0
-- `flip_bit(n_or_range, lsb_first: true) -> self` -- toggle one bit or a logical bit range
-
-**Iteration**
-
-- `each_bit(reverse: false) { |bool| ... } -> self` -- yield each bit as true/false  
-  `each_bit(reverse: false) -> Enumerator`
-- `bits(reverse: false) -> Array` -- Array form of `each_bit`  
-  `bits(reverse: false) { |bool| ... } -> self`
+- `each_bit(lsb_first: true) { |bool| ... } -> self` -- yield each bit as true/false  
+  `each_bit(lsb_first: true) -> Enumerator`
+- `bits(lsb_first: true) -> Array` -- Array form of `each_bit`  
+  `bits(lsb_first: true) { |bool| ... } -> self`
+- `each_bit_run(lsb_first: true) { |bit, len| } -> self` -- yield `(bit, run_length)` pairs  
+  `each_bit_run(lsb_first: true) -> Enumerator`
+- `bit_runs(lsb_first: true) -> Array` -- Array form of `each_bit_run`  
+  `bit_runs(lsb_first: true) { |bit, len| } -> self`
 - `each_set_bit_offset(lsb_first: true) { |n| ... } -> self` -- yield position of each set-bit    
   `each_set_bit_offset(lsb_first: true) -> Enumerator`
 - `set_bit_offsets(lsb_first: true) -> Array` -- Array form of `each_set_bit_offset`  
   `set_bit_offsets(lsb_first: true) { |n| ... } -> self`
 
-**Bit-range I/O**
+**Mutation**
 
-- `bit_slice(bit_offset, bit_length) -> String | nil` -- extract a sub-sequence of bits (bit-granularity `byteslice`)  
-  `bit_slice(range) -> String | nil`
-- `bit_splice(bit_index, bit_length, str) -> self`  
-  `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`  
-  `bit_splice(range, str) -> self`  
-  `bit_splice(range, str, str_range) -> self`  
-  -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
+- `set_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 1
+- `clear_bit(n_or_range, lsb_first: true) -> self` -- set one bit or a logical bit range to 0
+- `flip_bit(n_or_range, lsb_first: true) -> self` -- toggle one bit or a logical bit range
+- `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`  
+  `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, lsb_first: true) -> self`  
+  `bit_splice(range, str, lsb_first: true) -> self`  
+  `bit_splice(range, str, str_range, lsb_first: true) -> self` -- write a sub-sequence of bits in place (bit-granularity `bytesplice`)
 
-**Run-length**
+**Slice**
 
-- `bit_run_count(pos, bit) -> Integer | nil` -- length of the run of `bit` starting at pos
-- `each_bit_run(reverse: false) { |bit, len| } -> self` -- yield `(bit, run_length)` pairs  
-  `each_bit_run(reverse: false) -> Enumerator`
-- `bit_runs(reverse: false) -> Array` -- Array form of `each_bit_run`  
-  `bit_runs(reverse: false) { |bit, len| } -> self`
+- `bit_slice(bit_offset, bit_length, lsb_first: true) -> String | nil` -- extract a sub-sequence of bits (bit-granularity `byteslice`)  
+  `bit_slice(range, lsb_first: true) -> String | nil`
 
-**Bulk bitwise**
+**Bitwise**
 
 - `bit_not -> String` / `bit_not! -> self` -- invert every bit
 - `bit_and(other) -> String` / `bit_and!(other) -> self` -- bitwise AND
@@ -100,5 +95,5 @@ Detailed benchmarks, discussion, and prior art:
 - Proposed methods: https://github.com/hasumikin/string_bits/blob/master/docs/ProposedMethods.md
 - Benchmark: https://github.com/hasumikin/string_bits/blob/master/docs/Benchmark.md
 - Discussion: https://github.com/hasumikin/string_bits/blob/master/docs/Discussion.md
-- Bit numbering and traversal order: https://github.com/hasumikin/string_bits/blob/master/docs/BitNumberingAndTraversalOrder.md
+- Bit numbering: https://github.com/hasumikin/string_bits/blob/master/docs/BitNumbering.md
 - Prior art: https://github.com/hasumikin/string_bits/blob/master/docs/PriorArt.md

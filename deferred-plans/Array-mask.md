@@ -5,23 +5,14 @@ The compositional primitives `bit_and` / `bit_or` / `bit_xor` / `bit_not` on the
 
 ## Methods for Array
 
-| category             | methods       | keyword param | allocates result object |
-|----------------------|---------------|---------------|-------------------------|
-| Intra-Byte Numbering | `Array#mask!` | `lsb_first:`  | no                      |
-| Intra-Byte Numbering | `Array#mask`  | `lsb_first:`  | yes (`Array`)           |
+- `mask(bitmap, lsb_first: true, invert: false) -> Array` -- returns a new array (allocates)
+- `mask!(bitmap, lsb_first: true, invert: false) -> self` -- modifies the receiver in place
 
-- `mask(bitmap, lsb_first: true, invert: false) -> Array`
-- `mask!(bitmap, lsb_first: true, invert: false) -> self`
-
-### Intra-Byte Numbering
-
-`Array#mask` applies a bitmap to an array, returning a new array of the same length where each element is either kept or replaced with `nil` according to the corresponding bit. `Array#mask!` performs the same operation in place.
-
-No block is involved; the operation applies the bitmap directly to the array.
+Both apply the bitmap directly without a block. The `lsb_first:` keyword follows the same convention as the `String` bit API: see [BitNumbering.md](../docs/BitNumbering.md).
 
 #### `mask(bitmap, lsb_first: true, invert: false) -> Array`
 
-Returns a new `Array`. Elements whose corresponding bit is 1 (for `invert: false`) or 0 (for `invert: true`) are kept; all others become `nil`.
+Returns a new `Array` of the same length. Elements whose corresponding bit is 1 (for `invert: false`) or 0 (for `invert: true`) are kept; all others become `nil`.
 
 ```ruby
 data   = [1, 2, 3, 4]

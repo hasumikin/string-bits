@@ -9,8 +9,8 @@ This file documents `each_bit_field` and `bit_fields` as well as `Array#mask`, w
 These methods yield plain `Integer` values, which is a different yield type from all other iteration methods in the proposal (which yield `true`/`false` or flat `Integer` positions).
 Introducing a method that yields typed field values decoded from a packed binary layout is expected to prolong discussion on the core-ruby-dev mailing list. The rest of the proposal is kept clean to reduce that risk.
 
-## `each_bit_field(*bitlens, reverse: false) { |*fields| } -> self`
-## `each_bit_field(*bitlens, reverse: false) -> Enumerator`
+## `each_bit_field(*bitlens, lsb_first: true) { |*fields| } -> self`
+## `each_bit_field(*bitlens, lsb_first: true) -> Enumerator`
 
 Iterates over the string as a sequence of packed bit-field records. Each positional argument specifies the width (in bits) of one field in the record. On each iteration, one value per field is yielded as an `Integer` (LSB-first). Each bitlen must be between 1 and 64. Without a block, returns an `Enumerator`.
 
@@ -75,10 +75,10 @@ Each extracted field is a plain `Integer`, so arithmetic on channel values and d
 
 ---
 
-### `bit_fields(*bitlens, reverse: false) -> Array`
-### `bit_fields(*bitlens, reverse: false) { |*fields| } -> self`
+### `bit_fields(*bitlens, lsb_first: true) -> Array`
+### `bit_fields(*bitlens, lsb_first: true) { |*fields| } -> self`
 
-Non-iterator complement of `each_bit_field`. Without a block, collects all records into an `Array` and returns it. With a block, yields the same values as `each_bit_field` (without `with:`) and returns `self`.
+Non-iterator complement of `each_bit_field`. Without a block, collects all records into an `Array` and returns it. With a block, yields the same values as `each_bit_field` and returns `self`.
 
 The returned array mirrors `each_bit_field(*bitlens).to_a`: when exactly one bitlen is given the array is flat (`Array[Integer]`); when multiple bitlens are given each element is itself an `Array` (`Array[Array[Integer]]`).
 
@@ -94,12 +94,17 @@ data.bit_fields(8, 8)
 pixel = [(21) | (42 << 5) | (10 << 11)].pack("S<")
 pixel.bit_fields(5, 6, 5)
 #=> [[21, 42, 10]]
-
-data.bit_fields(8, reverse: true)
-#=> [0xCC, 0xAA]          # records in reverse order
 ```
 
 Unlike `each_bit_field`, `bit_fields` returns all records at once, so the caller can compute offsets or indices from the returned array directly.
+
+With `lsb_first: false`, each field collects bits in intra-byte MSB-first order before packing them into the result Integer, matching the convention of `each_bit(lsb_first: false)`:
+
+```ruby
+"\x96\x3C".bit_fields(8, lsb_first: false)
+#=> [0x69, 0x3C]
+# 0x96 = 0b10010110, read MSB-first = 0b01101001 = 0x69
+```
 
 ---
 
@@ -169,18 +174,14 @@ noblock : req : opt : rest : post : key_count : kdict : block
    1       5     5      1      5        5         1       1
 ```
 
-`genop_W()` emits the 24-bit value in big-endian byte order, so the natural way to walk the record is from the most significant bit toward the least significant bit. But each field's numeric value is still assembled in the ordinary LSB-first way (`MRB_ARGS_REQ(n)` is `n << 18`, `MRB_ARGS_OPT(n)` is `n << 13`, and so on).
+`genop_W()` emits the 24-bit value in big-endian byte order: the leading `noblock` bit lives at the MSB of `byte[0]`, and `block` lives at the LSB of `byte[2]`. The natural way to walk this record is intra-byte MSB-first, and each numeric field is the MSB-first integer formed by its 5 (or 1) bits in that order.
 
-That makes `OP_ENTER` a concrete example of why `reverse:` is useful:
-
-- `reverse: true` because the field sequence is read from the high end of the 24-bit word
-- field values themselves still become ordinary little integers
+`lsb_first: false` matches both halves of that convention in a single call:
 
 ```ruby
 # operand_bytes is the 3-byte operand that follows OP_ENTER
 noblock, req, opt, rest, post, key_count, kdict, block =
-  operand_bytes.bit_fields(1, 5, 5, 1, 5, 5, 1, 1,
-                           reverse: true)
+  operand_bytes.bit_fields(1, 5, 5, 1, 5, 5, 1, 1, lsb_first: false)
 ```
 
-This use case is particularly valuable because it is not about image pixels or network packets. It is a real VM/compiler metadata format whose record order differs from the default left-to-right traversal.
+This use case is particularly valuable because it is not about image pixels or network packets. It is a real VM/compiler metadata format whose record runs MSB-first across a big-endian operand.

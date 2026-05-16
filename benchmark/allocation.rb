@@ -137,7 +137,7 @@ measure("baseline:    each_byte + bit loop") {
 }
 measure("string_bits: each_bit { block }") {
   runs = []; current = nil; count = 0
-  RLE_DATA.each_bit(reverse: false) do |b|
+  RLE_DATA.each_bit do |b|
     if b == current then count += 1
     else runs << [current, count] unless current.nil?; current = b; count = 1
     end

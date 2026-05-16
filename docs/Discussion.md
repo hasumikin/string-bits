@@ -4,7 +4,7 @@
 
 All methods share one flat physical numbering scheme: position `N` lives in `byte[N / 8]` at bit `N % 8` (LSB-first within each byte).
 
-The semantics of `lsb_first:` (intra-byte numbering) and `reverse:` (traversal order) are described in [BitNumberingAndTraversalOrder.md](./BitNumberingAndTraversalOrder.md). This section focuses only on the design consequences.
+A single keyword, `lsb_first:`, runs through every position-aware method in the proposal. It selects intra-byte numbering for methods that exchange positions with the caller (`bit_at`, `set_bit`, `each_set_bit_offset`, `bit_slice`, `bit_splice`, `bit_run_count`), and intra-byte scan direction for the walker methods (`each_bit`, `bits`, `each_bit_run`, `bit_runs`). Across-byte order is always `byte[0]` to `byte[n-1]` and is not affected by the keyword. `bit_slice` results are always packed LSB-first regardless of the keyword used for the input position, which keeps every returned `String` in one canonical layout. The full semantics are described in [BitNumbering.md](./BitNumbering.md); this section focuses only on the design consequences.
 
 ### Error behavior for out-of-range bit indices
 

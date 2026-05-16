@@ -9,7 +9,7 @@ class TestEachBit < Minitest::Test
 
   def test_msb_single_byte
     bits = []
-    "\xAA".each_bit(reverse: true) { |b| bits << b }
+    "\xAA".each_bit(lsb_first: false) { |b| bits << b }
     assert_equal [true, false, true, false, true, false, true, false], bits
   end
 
@@ -21,8 +21,8 @@ class TestEachBit < Minitest::Test
 
   def test_msb_multi_byte
     bits = []
-    [0b10101010, 0b11001100].pack('C*').each_bit(reverse: true) { |b| bits << (b ? 1 : 0) }
-    assert_equal [1,1,0,0,1,1,0,0, 1,0,1,0,1,0,1,0], bits
+    [0b10101010, 0b11001100].pack('C*').each_bit(lsb_first: false) { |b| bits << (b ? 1 : 0) }
+    assert_equal [1,0,1,0,1,0,1,0, 1,1,0,0,1,1,0,0], bits
   end
 
   def test_empty_string
@@ -45,13 +45,13 @@ class TestEachBit < Minitest::Test
 
   def test_returns_enumerator_without_block
     assert_instance_of Enumerator, "\xAA".each_bit
-    assert_instance_of Enumerator, "\xAA".each_bit(reverse: false)
+    assert_instance_of Enumerator, "\xAA".each_bit(lsb_first: false)
   end
 
   def test_returns_self_with_block
     s = "\xAA"
     assert_same s, s.each_bit {}
-    assert_same s, s.each_bit(reverse: false) {}
+    assert_same s, s.each_bit(lsb_first: false) {}
   end
 
   def test_enumerator_lsb
@@ -60,7 +60,7 @@ class TestEachBit < Minitest::Test
   end
 
   def test_enumerator_msb
-    e = "\xAA".each_bit(reverse: true)
+    e = "\xAA".each_bit(lsb_first: false)
     assert_equal [true, false, true, false, true, false, true, false], e.to_a
   end
 
@@ -69,12 +69,13 @@ class TestEachBit < Minitest::Test
     assert_equal [1] * 8, result
   end
 
-  def test_msb_is_reverse_of_lsb
-    ["\xAA", [0b10101010, 0b11001100].pack('C*')].each do |data|
-      lsb = data.each_bit(reverse: false).to_a
-      msb = data.each_bit(reverse: true).to_a
-      assert_equal msb, lsb.reverse
-    end
+  def test_msb_changes_intra_byte_order_only
+    data = [0b10101010, 0b11001100].pack('C*')
+    assert_equal(
+      [true, false, true, false, true, false, true, false,
+       true, true, false, false, true, true, false, false],
+      data.each_bit(lsb_first: false).to_a
+    )
   end
 
   def test_count_set_bit_positions
@@ -83,7 +84,7 @@ class TestEachBit < Minitest::Test
   end
 
   def test_unknown_keyword_raises_argument_error
-    err = assert_raises(ArgumentError) { "\xAA".each_bit(lsb_first: true).to_a }
+    err = assert_raises(ArgumentError) { "\xAA".each_bit(reverse: true).to_a }
     assert_match(/unknown keyword/, err.message)
   end
 end

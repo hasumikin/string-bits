@@ -77,22 +77,22 @@ class TestBitFields < Minitest::Test
     assert_empty "".bit_fields(8)
   end
 
-  # --- reverse: true ---
+  # --- lsb_first: false ---
 
-  def test_msb_reverses_order_single_field
-    data = "\xAA\xBB\xCC\xDD"
-    assert_equal data.bit_fields(8).reverse, data.bit_fields(8, reverse: true)
+  def test_msb_passes_byte_through_for_byte_aligned_fields
+    data = "\x96\x3C"
+    assert_equal [0x96, 0x3C], data.bit_fields(8, lsb_first: false)
   end
 
-  def test_msb_reverses_order_multi_field
-    data = "\xAA\xBB\xCC\xDD"
-    assert_equal data.bit_fields(8, 8).reverse, data.bit_fields(8, 8, reverse: true)
+  def test_msb_sub_byte_fields_split_at_msb_side
+    # "\xF0" = 0b11110000.  MSB-first 4+4 = top nibble, bottom nibble.
+    assert_equal [[0xF, 0]], "\xF0".bit_fields(4, 4, lsb_first: false)
   end
 
   def test_msb_matches_each_bit_field_to_a
     data = "\xAA\xCC\xFF\x00"
-    assert_equal data.each_bit_field(8, reverse: true).to_a, data.bit_fields(8, reverse: true)
-    assert_equal data.each_bit_field(8, 8, reverse: true).to_a, data.bit_fields(8, 8, reverse: true)
+    assert_equal data.each_bit_field(8, lsb_first: false).to_a, data.bit_fields(8, lsb_first: false)
+    assert_equal data.each_bit_field(5, 6, 5, lsb_first: false).to_a, data.bit_fields(5, 6, 5, lsb_first: false)
   end
 
   # --- Block form ---
@@ -117,8 +117,8 @@ class TestBitFields < Minitest::Test
 
   def test_block_msb_order
     vals = []
-    "\xAA\xBB\xCC\xDD".bit_fields(8, reverse: true) { |v| vals << v }
-    assert_equal [0xDD, 0xCC, 0xBB, 0xAA], vals
+    "\x96\x3C".bit_fields(8, lsb_first: false) { |v| vals << v }
+    assert_equal [0x96, 0x3C], vals
   end
 
   # --- Error handling ---
@@ -148,8 +148,8 @@ class TestBitFields < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_fields(4, 65) }
   end
 
-  def test_argument_error_for_invalid_reverse
-    assert_raises(ArgumentError) { "\xAA".bit_fields(4, reverse: :foo) }
+  def test_argument_error_for_invalid_lsb_first
+    assert_raises(ArgumentError) { "\xAA".bit_fields(4, lsb_first: :foo) }
   end
 
   def test_field_order_is_unknown_keyword

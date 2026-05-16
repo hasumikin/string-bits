@@ -1,103 +1,38 @@
 ## Proposed Methods
 
-| category             | methods                                       | keyword param | allocates result object |
-|----------------------|-----------------------------------------------|---------------|-------------------------|
-| Traversal Order      | `each_bit`                                    | `reverse:`    | no                      |
-| Traversal Order      | `bits`                                        | `reverse:`    | yes (`Array`)           |
-| Traversal Order      | `each_bit_run`                                | `reverse:`    | no                      |
-| Traversal Order      | `bit_runs`                                    | `reverse:`    | yes (`Array`)           |
-| Intra-Byte Numbering | `bit_at`                                      | `lsb_first:`  | no                      |
-| Intra-Byte Numbering | `set_bit`, `clear_bit`, `flip_bit`            | `lsb_first:`  | no                      |
-| Intra-Byte Numbering | `each_set_bit_offset`                         | `lsb_first:`  | no                      |
-| Intra-Byte Numbering | `set_bit_offsets`                             | `lsb_first:`  | yes (`Array`)           |
-| Flat                 | `bit_slice`                                   | no            | yes (`String`)          |
-| Flat                 | `bit_splice`                                  | no            | no                      |
-| Flat                 | `bit_run_count`                               | no            | no                      |
-| Aggregate            | `bit_count`                                   | no            | no                      |
-| Bitwise (in-place)   | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | no            | no                      |
-| Bitwise              | `bit_not`, `bit_and`, `bit_or`, `bit_xor`     | no            | yes (`String`)          |
+| category | methods                                       | keyword param | allocates result object          |
+|----------|-----------------------------------------------|---------------|----------------------------------|
+| Read     | `bit_at`                                      | `lsb_first:`  | no                               |
+| Read     | `bit_count`                                   | no            | no                               |
+| Read     | `bit_run_count`                               | `lsb_first:`  | no                               |
+| Iterator | `each_bit`, `bits`                            | `lsb_first:`  | `bits` only (`Array`)            |
+| Iterator | `each_bit_run`, `bit_runs`                    | `lsb_first:`  | `bit_runs` only (`Array`)        |
+| Iterator | `each_set_bit_offset`, `set_bit_offsets`      | `lsb_first:`  | `set_bit_offsets` only (`Array`) |
+| Mutation | `set_bit`, `clear_bit`, `flip_bit`            | `lsb_first:`  | no                               |
+| Mutation | `bit_splice`                                  | `lsb_first:`  | no                               |
+| Slice    | `bit_slice`                                   | `lsb_first:`  | yes (`String`)                   |
+| Bitwise  | `bit_not!`, `bit_and!`, `bit_or!`, `bit_xor!` | no            | no                               |
+| Bitwise  | `bit_not`, `bit_and`, `bit_or`, `bit_xor`     | no            | yes (`String`)                   |
 
-The category names above are not just cosmetic. `Traversal Order`, `Intra-Byte Numbering`, and `Flat` reflect three different coordinate models in this proposal:
+Methods are grouped by what they do to the bitmap:
 
-- `Traversal Order` methods traverse bits in one direction and therefore use `reverse:`
-- `Intra-Byte Numbering` methods accept or return logical bit numbers and therefore use `lsb_first:`
-- `Flat` methods work directly on physical bit offsets and therefore take no ordering keyword
+- **Read** -- inspect bits without modifying the receiver
+- **Iterator** -- walk every bit and yield each one (or its position / run)
+- **Mutation** -- modify the receiver in place
+- **Slice** -- extract a sub-sequence of bits into a new `String`
+- **Bitwise** -- whole-bitmap logical operations (`!` form is in-place, the non-`!` form returns a new `String`)
 
-`Aggregate` and `Bitwise` are separated because they are whole-bitmap operations rather than coordinate-based APIs.
+A single keyword, `lsb_first:`, controls bit ordering wherever it appears. `Bitwise` methods and `bit_count` are order-independent and take no keyword.
 
-For a beginner-oriented explanation of those ideas, see [BitNumberingAndTraversalOrder.md](./BitNumberingAndTraversalOrder.md).
+See [BitNumbering.md](./BitNumbering.md) about `lsb_first:` keyword.
 
-### Traversal Order
-
-#### `each_bit(reverse: false) { |bool| ... } -> self`
-#### `each_bit(reverse: false) -> Enumerator`
-
-Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. With a block, returns `self`.
-`reverse: false` starts from physical position 0. `reverse: true` starts from the last physical bit. See [BitNumberingAndTraversalOrder.md](./BitNumberingAndTraversalOrder.md) for the conceptual model.
-
-```ruby
-"\xAA".each_bit.to_a
-#=> [false, true, false, true, false, true, false, true]
-#  pos  0     1     2      3     4      5     6      7
-
-"\xAA".each_bit(reverse: true).to_a
-#=> [true, false, true, false, true, false, true, false]
-#  pos 7     6      5     4      3     2      1     0
-
-data = "Any arbitrary string of bytes can be used as data, not just ASCII text."
-data.each_bit.to_a == data.each_bit(reverse: true).to_a.reverse
-#=> true
-```
-
----
-
-#### `bits(reverse: false) -> Array`
-#### `bits(reverse: false) { |bool| ... } -> self`
-
-Without a block, equivalent to `each_bit(reverse: reverse).to_a`. With a block, equivalent to `each_bit(reverse: reverse) { |b| ... }`.
-
----
-
-#### `each_bit_run(reverse: false) { |bit, len| } -> self`
-#### `each_bit_run(reverse: false) -> Enumerator`
-
-Yields `(bit, run_length)` pairs for each consecutive run of identical bits.
-
-RLE encoding --- the primary motivation:
-
-```ruby
-data = "\xF0"
-
-# with each_bit
-runs = []; current = nil; count = 0
-data.each_bit(reverse: false) do |b|
-  if b == current then count += 1
-  else runs << [current, count] unless current.nil?; current = b; count = 1
-  end
-end
-runs << [current, count] unless current.nil?
-
-# with each_bit_run
-"\xF0".each_bit_run(reverse: false).to_a
-#=> [[false, 4], [true, 4]]
-```
-
----
-
-#### `bit_runs(reverse: false) -> Array`
-#### `bit_runs(reverse: false) { |bit, len| } -> self`
-
-Without a block, equivalent to `each_bit_run(reverse: reverse).to_a`. With a block, equivalent to `each_bit_run(reverse: reverse) { |bit, len| ... }`.
-
----
-
-### Intra-Byte Numbering
+### Read
 
 #### `bit_at(n, lsb_first: true) -> true | false | nil`
 
 Returns whether bit at flat position `n` is set. Returns `nil` if `n` is out of range.
 
-`lsb_first: true` (default) uses LSB-first numbering within each byte. `lsb_first: false` preserves byte order but uses MSB-first numbering within each byte. See [BitNumberingAndTraversalOrder.md](./BitNumberingAndTraversalOrder.md) for how `n` maps to a specific bit under each convention.
+`lsb_first: true` (default) uses LSB-first numbering within each byte. `lsb_first: false` preserves byte order but uses MSB-first numbering within each byte. See [BitNumbering.md](./BitNumbering.md) for how `n` maps to a specific bit under each convention.
 
 ```ruby
 bitmap = "\xFF\xAA"                 # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
@@ -113,7 +48,7 @@ Apache Arrow idiom --- check if element `i` is valid:
 valid = bitmap.bit_at(i)
 ```
 
-RFC / wire-format idiom --- read by the RFC diagram "bit 0" convention (leftmost bit of the first byte):
+**Use case for `lsb_first: false`:** RFC / wire-format idiom --- read by the RFC diagram "bit 0" convention (leftmost bit of the first byte):
 
 ```ruby
 header = "\xC0\x00\x00\x00".b           # IPv4 header byte 0 = 0b11000000
@@ -124,200 +59,27 @@ header.bit_at(2, lsb_first: false)      #=> false
 
 ---
 
-#### `set_bit(n_or_range, lsb_first: true) -> self`
+#### `bit_count -> Integer`
 
-Sets one logical bit, or every logical bit in a logical range, to 1.
+Returns the total number of set-bits across the entire string.
 
 ```ruby
-bitmap = +"\x00\x00".b
-bitmap.set_bit(0)                      #=> bit 0 of byte[0] becomes 1 => "\x01\x00"
-bitmap.set_bit(9)                      #=> bit 1 of byte[1] becomes 1 => "\x01\x02"
-bitmap.set_bit(4..11)                  #=> "\xF0\x0F"
-bitmap.set_bit(6..9, lsb_first: false) #=> "\x03\xC0"
-bitmap.set_bit(100)                    #=> IndexError
+"\x00".bit_count     #=> 0
+"\xFF".bit_count     #=> 8
+"\xAA".bit_count     #=> 4   # 0b10101010
+"\xFF\xFF".bit_count #=> 16
 ```
 
-Apache Arrow idiom --- build a validity bitmap incrementally:
+Apache Arrow idiom --- count valid and null elements (note that the bitmap may have unused trailing bits in the last byte, so the column's row count must come from schema metadata, not from `bytesize * 8`):
 
 ```ruby
-bitmap = +"\x00" * ((row_count + 7) / 8)
-rows.each_with_index { |row, i| bitmap.set_bit(i) unless row[:value].nil? }
+valid_count = bitmap.bit_count
+null_count  = row_count - valid_count
 ```
 
 ---
 
-#### `clear_bit(n_or_range, lsb_first: true) -> self`
-
-Sets one logical bit, or every logical bit in a logical range, to 0.
-
-```ruby
-bitmap = +"\xFF\xFF".b
-bitmap.clear_bit(0)                      #=> "\xFE\xFF"
-bitmap.clear_bit(8)                      #=> "\xFE\xFE"
-bitmap.clear_bit(4..11)                  #=> "\x0F\xF0"
-bitmap.clear_bit(6..9, lsb_first: false) #=> "\xFC\x3F"
-bitmap.clear_bit(100)                    #=> IndexError
-```
-
----
-
-#### `flip_bit(n_or_range, lsb_first: true) -> self`
-
-Toggles one logical bit, or every logical bit in a logical range.
-
-```ruby
-bitmap = +"\x00".b
-bitmap.flip_bit(3)                      #=> "\x08"
-bitmap.flip_bit(3)                      #=> "\x00"  (back to original)
-bitmap.flip_bit(4..11)                  #=> "\xF0\x0F"
-bitmap = +"\x00\x00".b
-bitmap.flip_bit(6..9, lsb_first: false) #=> "\x03\xC0"
-bitmap.flip_bit(100)                    #=> IndexError
-```
-
----
-
-#### `each_set_bit_offset(lsb_first: true) { |n| ... } -> self`
-#### `each_set_bit_offset(lsb_first: true) -> Enumerator`
-
-Yields the position of each **set-bit** (bit value == 1) under the chosen numbering convention. Without a block, returns an `Enumerator`. With a block, returns `self`.
-
-```
-data = "\xAA\xCC"  (byte[0]=0b10101010, byte[1]=0b11001100)
-
-Flat positions of all set-bits:
-
-  byte[0]: b1 b3 b5 b7  =>  positions  1,  3,  5,  7
-  byte[1]: b2 b3 b6 b7  =>  positions 10, 11, 14, 15
-
-lsb_first: true yields:   1,  3,  5,  7, 10, 11, 14, 15
-lsb_first: false yields:  0,  2,  4,  6,  8,  9, 12, 13
-```
-
-The returned positions use the same numbering convention as `bit_at`:
-
-```ruby
-data.each_set_bit_offset(lsb_first: false).all? do |n|
-  data.bit_at(n, lsb_first: false)
-end
-#=> true
-```
-
----
-
-#### `set_bit_offsets(lsb_first: true) -> Array`
-#### `set_bit_offsets(lsb_first: true) { |n| ... } -> self`
-
-Without a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first) { |n| ... }`.
-
----
-
-### Flat
-
-#### `bit_slice(bit_offset, bit_length) -> String | nil`
-#### `bit_slice(range) -> String | nil`
-
-The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset` (counted from the first bit, LSB-first).
-
-The range form is equivalent to the integer form, with the offset and length derived from the given bit range. Negative indices count backward from the end, exactly as in `byteslice` and `[]`.
-
-The result length is `ceil(bit_length / 8)` bytes. If `bit_length` is not a multiple of 8, the unused high bits of the last byte are cleared to zero.
-
-Returns `nil` if `bit_offset` or `bit_length` is not an `Integer`, if either is negative, or if `bit_offset` is beyond the end of the string.
-
-```ruby
-data = "\xFF\xAA".b    # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
-
-data.bit_slice(0, 8)   #=> "\xFF"
-data.bit_slice(8, 8)   #=> "\xAA"
-data.bit_slice(4, 8)   #=> "\xAF"   # bits 4-11 packed LSB-first
-
-data.bit_slice(0..7)   #=> "\xFF"
-data.bit_slice(0...8)  #=> "\xFF"
-data.bit_slice(-8..-1) #=> "\xAA"
-```
-
-The result String uses the same flat numbering scheme as the source, so `bit_at` and all iteration methods work directly on it:
-
-```ruby
-result = data.bit_slice(4, 8)
-result.bit_at(0)                #=> same as data.bit_at(4)
-result.each_set_bit_offset      # yields set-bit positions within the extracted range
-```
-
-Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC serialization:
-
-```ruby
-# Arrow in-memory slice has bit offset 5; IPC requires offset 0
-ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
-```
-
----
-
-#### `bit_splice(bit_index, bit_length, str) -> self`
-#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length) -> self`
-#### `bit_splice(range, str) -> self`
-#### `bit_splice(range, str, str_range) -> self`
-
-The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index` (counted from the first bit, LSB-first).
-
-The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
-
-Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range always has length `bit_length` (or the length implied by the destination range form), and the source side must provide at least that many bits. If the destination range or source range falls outside the available bits, it raises `IndexError`. This is the only sensible choice at sub-byte granularity: partial bytes cannot be shifted to make room.
-
-Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 5-arg form and the 3-arg range form, the exact source sub-range is given explicitly.
-
-```ruby
-buf = +"\x00\x00".b
-
-# 3-arg form: write bits 0-7 of "\xFF" into bits 0-7 of buf
-buf.bit_splice(0, 8, "\xFF")      #=> buf is "\xFF\x00"
-
-# write 4 bits starting at a non-byte-aligned position
-buf.bit_splice(4, 4, "\x0A")     # 0x0A = 0b00001010; bits 0-3 = 1010
-# bits 4-7 of buf[0] become 1010 => 0b10101111 = 0xAF
-# buf is "\xAF\x00"
-
-# 5-arg form: copy bits 4-7 of src into bits 0-3 of buf
-src = +"\xAA".b   # 0b10101010
-buf.bit_splice(0, 4, src, 4, 4)
-# src bits 4-7 = 1010; written into buf bits 0-3
-
-# range form
-buf.bit_splice(0..7, "\x00")     # same as bit_splice(0, 8, "\x00")
-buf.bit_splice(0..7, src, 0..7)  # copy first byte of src into first byte of buf
-
-# source range too short
-buf.bit_splice(1, 7, "")         #=> IndexError
-
-# destination range too long
-"\xAA\xCC".bit_splice(1, 17, "abcalkjsdcfkljaf") #=> IndexError
-```
-
-Roundtrip symmetry with `bit_slice`:
-
-```ruby
-src = Random.bytes(8)
-# Extract 12 bits from a non-byte-aligned position
-slice = src.bit_slice(4, 12)
-
-# Write them back into a zero buffer at the same position
-buf = ("\x00" * src.bytesize).b
-buf.bit_splice(4, 12, slice)
-
-buf.bit_slice(4, 12) == slice   #=> true
-```
-
-Apache Arrow idiom --- overwrite a sub-range of a validity bitmap in place:
-
-```ruby
-# Replace elements 40..79 of the bitmap with a new validity mask
-bitmap.bit_splice(40, 40, new_mask)
-```
-
----
-
-#### `bit_run_count(pos, bit) -> Integer | nil`
+#### `bit_run_count(pos, bit, lsb_first: true) -> Integer | nil`
 
 Returns the length of the consecutive run of `bit` starting at flat position `pos`, counting forward toward higher bit indices.
 
@@ -353,26 +115,300 @@ until (bit = data.bit_at(pos)).nil?
 end
 ```
 
+**Use case for `lsb_first: false`:** scalar form of the same UART/PPP bit-stuffing logic --- given a starting position in the MSB-first byte stream just received over the UART, return how many consecutive matching bits follow, so the parser can decide whether to insert or remove a stuffed bit. Runs in MSB-first mode merge across byte boundaries just like `each_bit_run(lsb_first: false)`.
+
 ---
 
-### Aggregate
+### Iterator
 
-#### `bit_count -> Integer`
+#### `each_bit(lsb_first: true) { |bool| ... } -> self`
+#### `each_bit(lsb_first: true) -> Enumerator`
 
-Returns the total number of set-bits across the entire string.
+Yields each bit as `true` or `false`. Without a block, returns an `Enumerator`. With a block, returns `self`.
+`lsb_first: true` walks each byte from LSB to MSB; `lsb_first: false` walks each byte from MSB to LSB. Byte order is always `byte[0]` first.
 
 ```ruby
-"\x00".bit_count     #=> 0
-"\xFF".bit_count     #=> 8
-"\xAA".bit_count     #=> 4   # 0b10101010
-"\xFF\xFF".bit_count #=> 16
+"\xAA".each_bit.to_a
+#=> [false, true, false, true, false, true, false, true]
+#       (byte 0xAA walked b0 -> b7)
+
+"\xAA".each_bit(lsb_first: false).to_a
+#=> [true, false, true, false, true, false, true, false]
+#       (byte 0xAA walked b7 -> b0)
 ```
 
-Apache Arrow idiom --- count valid and null elements (note that the bitmap may have unused trailing bits in the last byte, so the column's row count must come from schema metadata, not from `bytesize * 8`):
+**Use case for `lsb_first: false`:** walking a packed bit stream that was specified MSB-first --- variable-length codes in JPEG/Deflate Huffman, BitTorrent piece bitfields read in protocol order, or PNG 1-bit scanlines presented left-to-right.
+
+---
+
+#### `bits(lsb_first: true) -> Array`
+#### `bits(lsb_first: true) { |bool| ... } -> self`
+
+Without a block, equivalent to `each_bit(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit(lsb_first: lsb_first) { |b| ... }`.
+
+---
+
+#### `each_bit_run(lsb_first: true) { |bit, len| } -> self`
+#### `each_bit_run(lsb_first: true) -> Enumerator`
+
+Yields `(bit, run_length)` pairs for each consecutive run of identical bits.
+
+RLE encoding --- the primary motivation:
 
 ```ruby
-valid_count = bitmap.bit_count
-null_count  = row_count - valid_count
+data = "\xF0"
+
+# with each_bit
+runs = []; current = nil; count = 0
+data.each_bit do |b|
+  if b == current then count += 1
+  else runs << [current, count] unless current.nil?; current = b; count = 1
+  end
+end
+runs << [current, count] unless current.nil?
+
+# with each_bit_run
+"\xF0".each_bit_run.to_a
+#=> [[false, 4], [true, 4]]
+```
+
+**Use case for `lsb_first: false`:** detecting flag-byte boundaries in an MSB-first bit stream received over a UART. For example, a microcontroller talking to a cellular modem over PPP must find five consecutive `1` bits in the incoming UART byte stream --- the PPP/HDLC framing trigger that delimits frames and signals bit-stuffing. Because the protocol is MSB-first while runs straddle byte boundaries, the scan must walk each byte from MSB downward:
+
+```ruby
+"\x0F\xF0".each_bit_run(lsb_first: false).to_a
+#=> [[false, 4], [true, 8], [false, 4]]
+# Runs merge across the byte boundary because the scan is MSB-first.
+```
+
+---
+
+#### `bit_runs(lsb_first: true) -> Array`
+#### `bit_runs(lsb_first: true) { |bit, len| } -> self`
+
+Without a block, equivalent to `each_bit_run(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_bit_run(lsb_first: lsb_first) { |bit, len| ... }`.
+
+---
+
+#### `each_set_bit_offset(lsb_first: true) { |n| ... } -> self`
+#### `each_set_bit_offset(lsb_first: true) -> Enumerator`
+
+Yields the position of each **set-bit** (bit value == 1) under the chosen numbering convention. Without a block, returns an `Enumerator`. With a block, returns `self`.
+
+```
+data = "\xAA\xCC"  (byte[0]=0b10101010, byte[1]=0b11001100)
+
+Flat positions of all set-bits:
+
+  byte[0]: b1 b3 b5 b7  =>  positions  1,  3,  5,  7
+  byte[1]: b2 b3 b6 b7  =>  positions 10, 11, 14, 15
+
+lsb_first: true yields:   1,  3,  5,  7, 10, 11, 14, 15
+lsb_first: false yields:  0,  2,  4,  6,  8,  9, 12, 13
+```
+
+The returned positions use the same numbering convention as `bit_at`:
+
+```ruby
+data.each_set_bit_offset(lsb_first: false).all? do |n|
+  data.bit_at(n, lsb_first: false)
+end
+#=> true
+```
+
+**Use case for `lsb_first: false`:** enumerating owned piece indices from a BitTorrent bitfield, where the protocol numbers pieces MSB-first within each byte. The yielded integers are directly usable as piece indices.
+
+---
+
+#### `set_bit_offsets(lsb_first: true) -> Array`
+#### `set_bit_offsets(lsb_first: true) { |n| ... } -> self`
+
+Without a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first).to_a`. With a block, equivalent to `each_set_bit_offset(lsb_first: lsb_first) { |n| ... }`.
+
+---
+
+### Mutation
+
+#### `set_bit(n_or_range, lsb_first: true) -> self`
+
+Sets one logical bit, or every logical bit in a logical range, to 1.
+
+```ruby
+bitmap = +"\x00\x00".b
+bitmap.set_bit(0)                      #=> bit 0 of byte[0] becomes 1 => "\x01\x00"
+bitmap.set_bit(9)                      #=> bit 1 of byte[1] becomes 1 => "\x01\x02"
+bitmap.set_bit(4..11)                  #=> "\xF0\x0F"
+bitmap.set_bit(6..9, lsb_first: false) #=> "\x03\xC0"
+bitmap.set_bit(100)                    #=> IndexError
+```
+
+Apache Arrow idiom --- build a validity bitmap incrementally:
+
+```ruby
+bitmap = +"\x00" * ((row_count + 7) / 8)
+rows.each_with_index { |row, i| bitmap.set_bit(i) unless row[:value].nil? }
+```
+
+**Use case for `lsb_first: false`:** marking a piece as owned in a BitTorrent bitfield (piece `i` lives at MSB-first position `i`):
+
+```ruby
+bitfield.set_bit(piece_index, lsb_first: false)
+```
+
+---
+
+#### `clear_bit(n_or_range, lsb_first: true) -> self`
+
+Sets one logical bit, or every logical bit in a logical range, to 0.
+
+```ruby
+bitmap = +"\xFF\xFF".b
+bitmap.clear_bit(0)                      #=> "\xFE\xFF"
+bitmap.clear_bit(8)                      #=> "\xFE\xFE"
+bitmap.clear_bit(4..11)                  #=> "\x0F\xF0"
+bitmap.clear_bit(6..9, lsb_first: false) #=> "\xFC\x3F"
+bitmap.clear_bit(100)                    #=> IndexError
+```
+
+**Use case for `lsb_first: false`:** clearing a flag bit in a wire-format header without first reinterpreting positions to byte-local indices.
+
+---
+
+#### `flip_bit(n_or_range, lsb_first: true) -> self`
+
+Toggles one logical bit, or every logical bit in a logical range.
+
+```ruby
+bitmap = +"\x00".b
+bitmap.flip_bit(3)                      #=> "\x08"
+bitmap.flip_bit(3)                      #=> "\x00"  (back to original)
+bitmap.flip_bit(4..11)                  #=> "\xF0\x0F"
+bitmap = +"\x00\x00".b
+bitmap.flip_bit(6..9, lsb_first: false) #=> "\x03\xC0"
+bitmap.flip_bit(100)                    #=> IndexError
+```
+
+**Use case for `lsb_first: false`:** toggling a single flag bit in an MSB-first packet header (e.g. an ECN bit in an IP header) using the same diagram coordinate the spec writes.
+
+---
+
+#### `bit_splice(bit_index, bit_length, str, lsb_first: true) -> self`
+#### `bit_splice(bit_index, bit_length, str, str_bit_index, str_bit_length, lsb_first: true) -> self`
+#### `bit_splice(range, str, lsb_first: true) -> self`
+#### `bit_splice(range, str, str_range, lsb_first: true) -> self`
+
+The bit-granularity analog of `String#bytesplice`. Writes `bit_length` bits from `str` into `self` starting at flat bit position `bit_index`.
+
+The inverse of `bit_slice`: where `bit_slice` reads a sub-sequence of bits into a new String, `bit_splice` writes one back. Returns `self`.
+
+Unlike `bytesplice`, `bit_splice` does not resize `self`. The destination range always has length `bit_length` (or the length implied by the destination range form), and the source side must provide at least that many bits. If the destination range or source range falls outside the available bits, it raises `IndexError`. This is the only sensible choice at sub-byte granularity: partial bytes cannot be shifted to make room.
+
+Negative indices count backward from the end, exactly as in `bytesplice` and `[]`. In the 3-arg form, `bit_length` bits are read from the beginning of `str`. In the 2-arg range form, the source is likewise read from the beginning of `str`, with the destination length determined by the destination range. In the 5-arg form and the 3-arg range form, the exact source sub-range is given explicitly.
+
+```ruby
+buf = +"\x00\x00".b
+
+# 3-arg form: write bits 0-7 of "\xFF" into bits 0-7 of buf
+buf.bit_splice(0, 8, "\xFF")      #=> buf is "\xFF\x00"
+
+# write 4 bits starting at a non-byte-aligned position
+buf.bit_splice(4, 4, "\x0A")     # 0x0A = 0b00001010; bits 0-3 = 1010
+# bits 4-7 of buf[0] become 1010 => 0b10101111 = 0xAF
+# buf is "\xAF\x00"
+
+# 5-arg form: copy bits 4-7 of src into bits 0-3 of buf
+src = +"\xAA".b   # 0b10101010
+buf.bit_splice(0, 4, src, 4, 4)
+# src bits 4-7 = 1010; written into buf bits 0-3
+
+# range form
+buf.bit_splice(0..7, "\x00")     # same as bit_splice(0, 8, "\x00")
+buf.bit_splice(0..7, src, 0..7)  # copy first byte of src into first byte of buf
+
+# source range too short
+buf.bit_splice(1, 7, "")         #=> IndexError
+
+# destination range too long
+"\xAA\xCC".bit_splice(1, 17, "abcalkjsdcfkljaf") #=> IndexError
+```
+
+`lsb_first:` only changes how the **destination position** is interpreted. The source `str` is always read as LSB-first packed, so the result of `bit_slice(..., lsb_first: false)` --- which is canonical LSB-first --- can be passed straight back to `bit_splice(..., lsb_first: false)` and the round-trip is exact.
+
+Roundtrip symmetry with `bit_slice`:
+
+```ruby
+src = Random.bytes(8)
+# Extract 12 bits from a non-byte-aligned position
+slice = src.bit_slice(4, 12)
+
+# Write them back into a zero buffer at the same position
+buf = ("\x00" * src.bytesize).b
+buf.bit_splice(4, 12, slice)
+
+buf.bit_slice(4, 12) == slice   #=> true
+
+# The same roundtrip holds under MSB-first coordinates:
+buf2 = ("\x00" * src.bytesize).b
+slice2 = src.bit_slice(4, 12, lsb_first: false)
+buf2.bit_splice(4, 12, slice2, lsb_first: false)
+buf2.bit_slice(4, 12, lsb_first: false) == slice2  #=> true
+```
+
+Apache Arrow idiom --- overwrite a sub-range of a validity bitmap in place:
+
+```ruby
+# Replace elements 40..79 of the bitmap with a new validity mask
+bitmap.bit_splice(40, 40, new_mask)
+```
+
+**Use case for `lsb_first: false`:** writing into an MSB-first packed wire-format buffer at a position the spec writes in MSB-first coordinates (PNG scanline pixel region, RFC header sub-field).
+
+---
+
+### Slice
+
+#### `bit_slice(bit_offset, bit_length, lsb_first: true) -> String | nil`
+#### `bit_slice(range, lsb_first: true) -> String | nil`
+
+The bit-granularity analog of `String#byteslice`. Extracts `bit_length` bits starting at flat bit position `bit_offset`.
+
+The range form is equivalent to the integer form, with the offset and length derived from the given bit range. Negative indices count backward from the end, exactly as in `byteslice` and `[]`.
+
+The result length is `ceil(bit_length / 8)` bytes. If `bit_length` is not a multiple of 8, the unused high bits of the last byte are cleared to zero.
+
+Returns `nil` if `bit_offset` or `bit_length` is not an `Integer`, if either is negative, or if `bit_offset` is beyond the end of the string.
+
+```ruby
+data = "\xFF\xAA".b    # byte[0]=0xFF, byte[1]=0xAA (0b10101010)
+
+data.bit_slice(0, 8)   #=> "\xFF"
+data.bit_slice(8, 8)   #=> "\xAA"
+data.bit_slice(4, 8)   #=> "\xAF"   # bits 4-11 packed LSB-first
+
+data.bit_slice(0..7)   #=> "\xFF"
+data.bit_slice(0...8)  #=> "\xFF"
+data.bit_slice(-8..-1) #=> "\xAA"
+```
+
+Regardless of `lsb_first:`, the result String is always packed LSB-first, so `bit_at` and all other methods work on it under their default convention:
+
+```ruby
+result = data.bit_slice(4, 8)
+result.bit_at(0)                #=> same as data.bit_at(4)
+result.each_set_bit_offset      # yields set-bit positions within the extracted range
+```
+
+Apache Arrow idiom --- normalize a non-byte-aligned validity bitmap for IPC serialization:
+
+```ruby
+# Arrow in-memory slice has bit offset 5; IPC requires offset 0
+ipc_validity = validity_bitmap.bit_slice(slice_offset, slice_length)
+```
+
+**Use case for `lsb_first: false`:** extracting a sub-range of an MSB-first packed buffer (PNG 1/2/4-bit scanline, RFC header field) using the same coordinate the spec writes. The result is a canonical LSB-first `String`, which means the returned slice plays naturally with the rest of the API:
+
+```ruby
+"\xAC".bit_slice(0, 4, lsb_first: false)  #=> "\x05"
+# the leading 4 bits of "\xAC" (= 1010) packed canonically
 ```
 
 ---

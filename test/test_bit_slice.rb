@@ -138,4 +138,22 @@ class TestBitSlice < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".bit_slice(0, 2**63) }
   end
 
+  def test_msb_positions_return_canonical_lsb_packed_result
+    assert_equal "\x05", "\xAC".bit_slice(0, 4, lsb_first: false)
+    assert_equal "\x03", "\xAC".bit_slice(4, 4, lsb_first: false)
+  end
+
+  def test_msb_range_roundtrip_with_bit_at
+    data = "\x96\x3C"
+    result = data.bit_slice(3, 7, lsb_first: false)
+    7.times do |i|
+      assert_equal data.bit_at(3 + i, lsb_first: false), result.bit_at(i), "bit #{i} mismatch"
+    end
+  end
+
+  def test_unknown_keyword_raises_argument_error
+    err = assert_raises(ArgumentError) { "\xFF".bit_slice(0, 4, reverse: true) }
+    assert_match(/unknown keyword/, err.message)
+  end
+
 end

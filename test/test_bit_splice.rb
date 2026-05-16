@@ -188,6 +188,20 @@ class TestBitSplice < Minitest::Test
     end
   end
 
+  def test_msb_destination_positions
+    s = +"\x00"
+    s.bit_splice(0, 4, "\x0F", lsb_first: false)
+    assert_equal "\xF0", s
+  end
+
+  def test_msb_roundtrip_unaligned
+    data = "\x96\x3C\xA5"
+    slice = data.bit_slice(3, 11, lsb_first: false)
+    buf = "\x00" * 3
+    buf.bit_splice(3, 11, slice, lsb_first: false)
+    assert_equal slice, buf.bit_slice(3, 11, lsb_first: false)
+  end
+
   # --- self-splice (aliasing) ---
 
   def test_self_splice_non_overlapping
@@ -267,5 +281,11 @@ class TestBitSplice < Minitest::Test
     assert_raises(ArgumentError) { s.bit_splice(2**62, 4, "\x00") }
     assert_raises(ArgumentError) { s.bit_splice(0, 2**62, "\x00") }
     assert_raises(ArgumentError) { s.bit_splice(2**100, 4, "\x00") }
+  end
+
+  def test_unknown_keyword_raises_argument_error
+    s = +"\x00"
+    err = assert_raises(ArgumentError) { s.bit_splice(0, 4, "\x0F", reverse: true) }
+    assert_match(/unknown keyword/, err.message)
   end
 end

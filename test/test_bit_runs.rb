@@ -30,7 +30,7 @@ class TestBitRuns < Minitest::Test
 
   def test_matches_each_bit_run_to_a_msb
     data = "\xAA\xCC\xFF\x00\xF0"
-    assert_equal data.each_bit_run(reverse: true).to_a, data.bit_runs(reverse: true)
+    assert_equal data.each_bit_run(lsb_first: false).to_a, data.bit_runs(lsb_first: false)
   end
 
   # --- content ---
@@ -53,13 +53,13 @@ class TestBitRuns < Minitest::Test
 
   # --- msb order ---
 
-  def test_msb_reverses_for_symmetric_data
-    data = "\xFF\x00"
-    assert_equal data.bit_runs.reverse, data.bit_runs(reverse: true)
+  def test_msb_can_merge_runs_across_byte_boundaries
+    data = "\x0F\xF0"
+    assert_equal [[false, 4], [true, 8], [false, 4]], data.bit_runs(lsb_first: false)
   end
 
   def test_msb_two_runs
-    assert_equal [[true, 4], [false, 4]], "\xF0".bit_runs(reverse: true)
+    assert_equal [[true, 4], [false, 4]], "\xF0".bit_runs(lsb_first: false)
   end
 
   # --- block form ---
@@ -72,7 +72,7 @@ class TestBitRuns < Minitest::Test
 
   def test_block_msb_order
     pairs = []
-    "\xF0".bit_runs(reverse: true) { |bit, len| pairs << [bit, len] }
+    "\xF0".bit_runs(lsb_first: false) { |bit, len| pairs << [bit, len] }
     assert_equal [[true, 4], [false, 4]], pairs
   end
 
@@ -87,6 +87,6 @@ class TestBitRuns < Minitest::Test
   # --- error handling ---
 
   def test_invalid_order
-    assert_raises(ArgumentError) { "\xFF".bit_runs(reverse: :foo) }
+    assert_raises(ArgumentError) { "\xFF".bit_runs(lsb_first: :foo) }
   end
 end

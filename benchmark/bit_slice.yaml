@@ -21,4 +21,4 @@ benchmark:
       end
     end
   string_bits: |
-    OFFSETS.each { |off| DATA.bit_slice(off, WINDOW_BITS) }
+    OFFSETS.each { |off| DATA.bit_slice(off, WINDOW_BITS, lsb_first: true) }

@@ -12,7 +12,7 @@ class TestEachBitField < Minitest::Test
 
   def test_returns_enumerator_with_options
     assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, 8)
-    assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, reverse: true)
+    assert_instance_of Enumerator, "\xAA\xCC".each_bit_field(8, lsb_first: false)
   end
 
   def test_returns_self_with_block
@@ -143,22 +143,43 @@ class TestEachBitField < Minitest::Test
     assert_raises(ArgumentError) { "\xFF".each_bit_field(4, 65) {} }
   end
 
-  # --- reverse: true ---
+  # --- lsb_first: false ---
 
-  def test_msb_reverses_iteration_order
-    data = "\xAA\xBB\xCC\xDD"
-    lsb = data.each_bit_field(8).to_a
-    msb = data.each_bit_field(8, reverse: true).to_a
-    assert_equal lsb.reverse, msb
+  def test_msb_passes_byte_through_for_byte_aligned_fields
+    # MSB-first scan of a whole byte, packed MSB-first as Integer,
+    # reproduces the byte value itself.
+    data = "\x96\x3C"
+    assert_equal [0x96, 0x3C], data.each_bit_field(8, lsb_first: false).to_a
   end
 
-  def test_msb_with_two_fields
-    data = "\xAA\xBB\xCC\xDD"
-    lsb_groups = []
-    msb_groups = []
-    data.each_bit_field(8, 8) { |a, b| lsb_groups << [a, b] }
-    data.each_bit_field(8, 8, reverse: true) { |a, b| msb_groups << [a, b] }
-    assert_equal lsb_groups.reverse, msb_groups
+  def test_msb_sub_byte_fields_split_at_msb_side
+    # "\xF0" = 0b11110000.  MSB-first split into 4+4:
+    #   field 0 = top nibble (0b1111 = 0xF)
+    #   field 1 = bottom nibble (0b0000 = 0)
+    assert_equal [[0xF, 0]], "\xF0".each_bit_field(4, 4, lsb_first: false).to_a
+  end
+
+  def test_msb_extracted_bits_match_bit_at
+    data = "\x96\x3C\xA5\x5A"
+    bitlen = 6
+    data.each_bit_field(bitlen, lsb_first: false).with_index do |val, iter|
+      bitlen.times do |j|
+        # MSB-first packing: the j-th bit collected from the buffer
+        # is at integer bit position (bitlen-1-j).
+        expected = data.bit_at(iter * bitlen + j, lsb_first: false) ? 1 : 0
+        assert_equal expected, (val >> (bitlen - 1 - j)) & 1, "iteration #{iter}, bit #{j}"
+      end
+    end
+  end
+
+  def test_msb_op_enter_like_record
+    # mruby OP_ENTER operand layout (24 bits = 1:5:5:1:5:5:1:1, big-endian).
+    # noblock=0, req=3, opt=2, rest=0, post=1, key=0, kdict=1, block=1:
+    # a = (3 << 18) | (2 << 13) | (1 << 7) | (1 << 1) | 1
+    a = (3 << 18) | (2 << 13) | (1 << 7) | (1 << 1) | 1
+    operand = [(a >> 16) & 0xFF, (a >> 8) & 0xFF, a & 0xFF].pack("C*")
+    fields = operand.each_bit_field(1, 5, 5, 1, 5, 5, 1, 1, lsb_first: false).to_a
+    assert_equal [[0, 3, 2, 0, 1, 0, 1, 1]], fields
   end
 
   # --- Error handling ---
@@ -183,8 +204,8 @@ class TestEachBitField < Minitest::Test
     assert_raises(ArgumentError) { "\xAA".each_bit_field(4, -1) {} }
   end
 
-  def test_argument_error_for_invalid_reverse
-    assert_raises(ArgumentError) { "\xAA".each_bit_field(4, reverse: :foo) {} }
+  def test_argument_error_for_invalid_lsb_first
+    assert_raises(ArgumentError) { "\xAA".each_bit_field(4, lsb_first: :foo) {} }
   end
 
   def test_argument_error_for_unknown_keyword

@@ -16,4 +16,4 @@ benchmark:
     end
     result
   string_bits: |
-    VALUES.mask(BITMAP, count_from: :lsb)
+    VALUES.mask(BITMAP, lsb_first: true)

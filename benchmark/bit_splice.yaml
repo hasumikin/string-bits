@@ -25,5 +25,5 @@ benchmark:
     buf
   string_bits: |
     buf = ("\x00" * BUF_BYTES).b
-    SOURCES.each_with_index { |src, i| buf.bit_splice(i * 4, 4, src) }
+    SOURCES.each_with_index { |src, i| buf.bit_splice(i * 4, 4, src, lsb_first: true) }
     buf
