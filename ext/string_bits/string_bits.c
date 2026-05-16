@@ -237,6 +237,27 @@ logical_write_bit(unsigned char *ptr, ssize_t logical_index, int lsb_first, int 
     physical_write_bit(ptr, logical_to_physical(logical_index, lsb_first), bit);
 }
 
+/* ssize_t-interface wrapper around rb_range_beg_len.
+ *
+ * rb_range_beg_len() takes (long *begp, long *lenp, long len), but this
+ * extension uses ssize_t throughout for LP64/LLP64 uniformity.  On Windows
+ * (LLP64) long is 32-bit while ssize_t is 64-bit, so passing &ssize_t to the
+ * stock API is a type error and the build fails.  This wrapper bridges the
+ * two and clamps the input length to LONG_MAX on platforms where ssize_t
+ * is wider than long, which has no practical effect: a 2 GiB string is
+ * already past what any realistic caller will hand us.
+ */
+static inline VALUE
+sb_range_beg_len(VALUE range, ssize_t *begp, ssize_t *lenp, ssize_t len, int err)
+{
+    long lbeg = 0, llen = 0;
+    long clipped = (len > (ssize_t)LONG_MAX) ? LONG_MAX : (long)len;
+    VALUE result = rb_range_beg_len(range, &lbeg, &llen, clipped, err);
+    if (begp) *begp = (ssize_t)lbeg;
+    if (lenp) *lenp = (ssize_t)llen;
+    return result;
+}
+
 static void
 validate_option_hash(VALUE opts, unsigned allowed)
 {
@@ -635,7 +656,7 @@ rb_str_bit_slice(int argc, VALUE *argv, VALUE self)
 
     if (n_pos == 1 && rb_obj_is_kind_of(v0, rb_cRange)) {
         ssize_t beg, len;
-        if (!RTEST(rb_range_beg_len(v0, &beg, &len, total_bits, 0))) {
+        if (!RTEST(sb_range_beg_len(v0, &beg, &len, total_bits, 0))) {
             return Qnil;
         }
         offset = beg;
@@ -719,7 +740,7 @@ rb_str_mutate_bits(int argc, VALUE *argv, VALUE self, enum sb_mutation_op op)
 
         /* err=0 returns Qnil for out-of-range begin (after negative normalization);
          * convert that to IndexError to stay consistent with single-bit access. */
-        if (!RTEST(rb_range_beg_len(target, &beg, &len, total_bits, 0))) {
+        if (!RTEST(sb_range_beg_len(target, &beg, &len, total_bits, 0))) {
             rb_raise(rb_eIndexError, "bit range out of range");
         }
 
@@ -1461,7 +1482,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     if (n_pos == 2 && rb_obj_is_kind_of(v0, rb_cRange)) {
         /* bit_splice(range, str) */
         ssize_t beg, len;
-        rb_range_beg_len(v0, &beg, &len, dst_total, 1);
+        sb_range_beg_len(v0, &beg, &len, dst_total, 1);
         dst_bit_off = beg;
         dst_bit_len = len;
         str = v1;
@@ -1472,7 +1493,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
     else if (n_pos == 3 && rb_obj_is_kind_of(v0, rb_cRange)) {
         /* bit_splice(range, str, str_range) */
         ssize_t beg, len;
-        rb_range_beg_len(v0, &beg, &len, dst_total, 1);
+        sb_range_beg_len(v0, &beg, &len, dst_total, 1);
         dst_bit_off = beg;
         dst_bit_len = len;
         str = v1;
@@ -1481,7 +1502,7 @@ rb_str_bit_splice(int argc, VALUE *argv, VALUE self)
             rb_raise(rb_eTypeError, "third argument must be a Range");
         }
         ssize_t src_total = RSTRING_LEN(str) * 8;
-        rb_range_beg_len(v2, &beg, &len, src_total, 1);
+        sb_range_beg_len(v2, &beg, &len, src_total, 1);
         src_bit_off = beg;
         src_bit_len = len;
     }
