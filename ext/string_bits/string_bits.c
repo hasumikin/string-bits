@@ -246,13 +246,42 @@ logical_write_bit(unsigned char *ptr, ssize_t logical_index, int lsb_first, int 
  * two and clamps the input length to LONG_MAX on platforms where ssize_t
  * is wider than long, which has no practical effect: a 2 GiB string is
  * already past what any realistic caller will hand us.
+ *
+ * It also catches the RangeError that rb_range_beg_len raises when a Range
+ * endpoint is a Bignum too large for `long`, and re-raises it as IndexError
+ * so that out-of-range bit positions report uniformly across LP64 and LLP64.
  */
+struct sb_range_args {
+    VALUE range;
+    long *lbegp;
+    long *llenp;
+    long len;
+    int err;
+};
+
+static VALUE
+sb_range_beg_len_call(VALUE arg)
+{
+    struct sb_range_args *a = (struct sb_range_args *)arg;
+    return rb_range_beg_len(a->range, a->lbegp, a->llenp, a->len, a->err);
+}
+
 static inline VALUE
 sb_range_beg_len(VALUE range, ssize_t *begp, ssize_t *lenp, ssize_t len, int err)
 {
     long lbeg = 0, llen = 0;
     long clipped = (len > (ssize_t)LONG_MAX) ? LONG_MAX : (long)len;
-    VALUE result = rb_range_beg_len(range, &lbeg, &llen, clipped, err);
+    struct sb_range_args args = { range, &lbeg, &llen, clipped, err };
+    int state = 0;
+    VALUE result = rb_protect(sb_range_beg_len_call, (VALUE)&args, &state);
+    if (state) {
+        VALUE exc = rb_errinfo();
+        rb_set_errinfo(Qnil);
+        if (rb_obj_is_kind_of(exc, rb_eRangeError)) {
+            rb_raise(rb_eIndexError, "bit range out of range");
+        }
+        rb_exc_raise(exc);
+    }
     if (begp) *begp = (ssize_t)lbeg;
     if (lenp) *lenp = (ssize_t)llen;
     return result;
