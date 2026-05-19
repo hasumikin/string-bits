@@ -84,16 +84,16 @@ end
 #=> true, for any bool
 ```
 
-## 4. Result Strings are always LSB-first packed
+### 4. Result Strings use canonical integer bit packing
 
-`bit_slice`, `bit_splice`, and `bit_run_count` exchange flat bit positions with the caller. `lsb_first: false` lets the caller use MSB-first numbering for the *input* position, but the result of `bit_slice` is **always packed LSB-first**:
+`bit_slice`, `bit_splice`, and `bit_run_count` exchange flat bit positions with the caller. `lsb_first: false` affects only how input positions are interpreted. The resulting packed bit sequence always follows ordinary integer semantics, where bit *n* corresponds to `(1 << n)` in C.
 
 ```ruby
 "\xAC".bit_slice(0, 4, lsb_first: false)
 #=> "\x05"
 # Input position 0..3 selects the four MSB-side bits of "\xAC" (= 1010).
-# The result is the canonical LSB-first packing of those bits, so
-# the returned String can be read by default-convention methods.
+# The result is the canonical integer bit packing, so the returned String
+# can be read by default-convention methods.
 ```
 
 This rule keeps every result String in one canonical layout: `bit_at`, `bit_count`, `bit_and`, and so on all behave the same way on slices regardless of which convention produced them.
